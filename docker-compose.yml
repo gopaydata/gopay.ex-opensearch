@@ -1,0 +1,26 @@
+version: "3"
+services:
+  # for development purposes
+  dev:
+    build: .
+    volumes:
+        - ./:/code
+        - ./data:/data
+    environment:
+      - KBC_DATADIR=./data
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  test:
+    # Use to run flake8 and unittests checks
+    build: .
+    volumes:
+      - ./:/code
+      - ./data:/data
+    environment:
+      - KBC_DATADIR=./data
+    command:
+      - /bin/sh
+      - /code/scripts/build_n_test.sh

@@ -1,0 +1,25 @@
+{
+  "parameters": {
+    "index_name": "myindex",
+    "primary_keys": ["id", "index"],
+    "query": "{\"_source\":[\"_id\",\"_index\",\"_score\",\"_type\",\"click.clicked_at\",\"click.result.display_text\",\"click.result.serp_position\",\"click.result.uri\",\"event\",\"market\",\"offset\",\"query.current_value\",\"query.entered_at\",\"serp.displayed_at\",\"session_id\",\"user_hash\"]}",
+    "date": {
+      "shift": "yesterday",
+      "format": "%Y-%m-%d",
+      "time_zone": "UTC"
+    },
+    "scheme": "http",
+    "incremental": true,
+    "storage_table": "search_analytics",
+    "db": {
+      "hostname": "localhost",
+      "port": 9200
+    },
+    "authentication": {
+      "auth_type": "basic",
+      "username": "elastic",
+      "#password": "root"
+    },
+    "debug": false
+  }
+}

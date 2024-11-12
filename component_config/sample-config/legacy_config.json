@@ -1,0 +1,26 @@
+{
+  "parameters": {
+    "ssh": {
+      "hostname": "ssh-host-url.cz",
+      "port": 22,
+      "username": "user-ssh",
+      "#private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\nENCRYPTED\nSSH\nKEY\n-----END OPENSSH PRIVATE KEY-----"
+    },
+    "index_name": "search_analytics-{{date}}",
+    "request_body": "{\"_source\":[\"_id\",\"_index\",\"_score\",\"_type\",\"click.clicked_at\",\"click.result.display_text\",\"click.result.serp_position\",\"click.result.uri\",\"event\",\"market\",\"offset\",\"query.current_value\",\"query.entered_at\",\"serp.displayed_at\",\"session_id\",\"user_hash\"]}",
+    "date": {
+      "append_date": true,
+      "format": "%Y.%m.%d",
+      "shift": "yesterday"
+    },
+    "primary_keys": ["id", "index"],
+    "incremental": true,
+    "storage_table": "search_analytics",
+    "db": {
+      "hostname": "127.0.0.1",
+      "port": 8080
+    },
+    "debug": true
+  },
+  "image_parameters": {}
+}

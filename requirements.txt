@@ -1,0 +1,15 @@
+keboola.component==1.4.3
+keboola.csvwriter
+keboola.json-to-csv
+elasticsearch==8.10.1
+dateparser
+paramiko==3.4.0
+retry
+furl
+mock
+freezegun
+https://bitbucket.org/kds_consulting_team/datadirtest/get/1.5.1.zip#egg=datadirtest
+pytest
+faker
+cryptography==36.0.2 # to supress Blowfish warnings from Paramiko
+sshtunnel==0.4.0
