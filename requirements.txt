@@ -1,7 +1,7 @@
 keboola.component==1.4.3
 keboola.csvwriter
 keboola.json-to-csv
-elasticsearch==8.10.1
+elasticsearch==8.16.0
 dateparser
 paramiko==3.4.0
 retry

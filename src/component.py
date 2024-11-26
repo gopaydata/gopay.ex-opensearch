@@ -68,96 +68,127 @@ class Component(ComponentBase):
 
     def log_available_indices(self, params: dict, save_to_csv: str = None):
         """
-        Loguje seznam dostupných indexů a volitelně ověřuje připojení.
+        Loguje seznam dostupných indexů, ověřuje připojení k Elasticsearch
+        a volitelně ukládá indexy do CSV souboru.
+
+        :param params: Konfigurační parametry pro připojení k Elasticsearch.
+        :param save_to_csv: Cesta k CSV souboru, kam se indexy uloží (volitelné).
         """
         try:
+            # Inicializace klienta
+            logging.info("Initializing Elasticsearch client...")
             client = self.get_client(params)
+
+            # Test připojení k serveru
             logging.info("Testing connection to Elasticsearch...")
-
-            # Test základního připojení
             if client.ping():
-                logging.info("Connection to Elasticsearch: OK")
+                logging.info("Connection to Elasticsearch successful. Server is reachable.")
             else:
-                logging.error("Connection to Elasticsearch: FAILED")
-                raise UserException("Ping to Elasticsearch failed.")
+                logging.error("Connection to Elasticsearch failed. Server might be unreachable.")
+                raise UserException("Ping to Elasticsearch server failed.")
 
-            # Získání všech indexů (test dotazu)
-            indices = client.indices.get_alias("*")
+            # Získání seznamu indexů
+            logging.info("Fetching available indices...")
+            indices = client.indices.get_alias("*")  # Získání aliasů pro všechny indexy
             index_names = list(indices.keys())
-            logging.info(f"Available indices: {index_names}")
 
-            # Uložení do CSV, pokud je specifikováno
+            if not index_names:
+                logging.warning("No indices found in Elasticsearch.")
+            else:
+                logging.info(f"Available indices: {index_names}")
+
+            # Uložení seznamu indexů do CSV souboru (volitelné)
             if save_to_csv:
+                logging.info(f"Saving indices to CSV file: {save_to_csv}")
                 with open(save_to_csv, mode='w', newline='', encoding='utf-8') as csv_file:
                     writer = csv.writer(csv_file)
                     writer.writerow(["Index Name"])
                     for index_name in index_names:
                         writer.writerow([index_name])
-                logging.info(f"Index list saved to {save_to_csv}")
+                logging.info(f"Index list successfully saved to {save_to_csv}")
 
+        except UserException as ue:
+            logging.error(f"UserException: {ue}")
+            raise
         except Exception as e:
-            logging.error(f"Error fetching indices: {e}")
-            raise UserException(f"Failed to retrieve indices: {str(e)}")
+            logging.error(f"Unexpected error while fetching indices: {e}")
+            raise UserException(f"Failed to retrieve indices due to an unexpected error: {str(e)}")
 
     def run(self):
         self.validate_configuration_parameters(REQUIRED_PARAMETERS)
         params = self.configuration.parameters
 
+        # Inicializace proměnných
+        temp_folder = os.path.join(self.data_folder_path, "temp")
+        out_table_name = params.get(KEY_STORAGE_TABLE, "ex-elasticsearch-result")
+        ssh_tunnel_started = False
+
         # Legacy SSH klient
         if params.get(KEY_LEGACY_SSH):
+            logging.info("Running legacy SSH client...")
             self.run_legacy_client()
             return
 
-        # Nastavení tunelu, pokud je SSH povoleno
-        ssh_options = params.get(KEY_SSH)
-        if not isinstance(ssh_options, list):
-            if ssh_options.get(KEY_USE_SSH, False):
-                self._create_and_start_ssh_tunnel(params)
-
         try:
-            # Volání logování dostupných indexů
+            # Nastavení SSH tunelu, pokud je povoleno
+            ssh_options = params.get(KEY_SSH)
+            if not isinstance(ssh_options, list) and ssh_options.get(KEY_USE_SSH, False):
+                logging.info("Setting up SSH tunnel...")
+                self._create_and_start_ssh_tunnel(params)
+                ssh_tunnel_started = True
+                logging.info("SSH tunnel started successfully.")
+
+            # Ověření připojení k Elasticsearch
             self.log_available_indices(params, save_to_csv="available_indices.csv")
+            logging.info("Elasticsearch connection and indices verification successful.")
 
-            out_table_name = params.get(KEY_STORAGE_TABLE, False)
-            if not out_table_name:
-                out_table_name = "ex-elasticsearch-result"
-                logging.info(f"Using default output table name: {out_table_name}")
-
+            # Příprava výstupní tabulky
+            logging.info(f"Preparing output table: {out_table_name}")
             user_defined_pk = params.get(KEY_PRIMARY_KEYS, [])
             incremental = params.get(KEY_INCREMENTAL, False)
-
             index_name, query = self.parse_index_parameters(params)
             statefile = self.get_state_file()
 
+            os.makedirs(temp_folder, exist_ok=True)
+            columns = statefile.get(out_table_name, [])
+            out_table = self.create_out_table_definition(
+                out_table_name, primary_key=user_defined_pk, incremental=incremental
+            )
+
+            # Extrakce dat z Elasticsearch
+            logging.info(f"Starting data extraction from index: {index_name}")
             client = self.get_client(params)
 
-            temp_folder = os.path.join(self.data_folder_path, "temp")
-            os.makedirs(temp_folder, exist_ok=True)
+            with ElasticDictWriter(out_table.full_path, columns) as wr:
+                for result in client.extract_data(index_name, query):
+                    wr.writerow(result)
+                wr.writeheader()
+            logging.info(f"Data successfully extracted to: {out_table.full_path}")
 
-            columns = statefile.get(out_table_name, [])
-            out_table = self.create_out_table_definition(out_table_name, primary_key=user_defined_pk,
-                                                         incremental=incremental)
-
-            try:
-                with ElasticDictWriter(out_table.full_path, columns) as wr:
-                    for result in client.extract_data(index_name, query):
-                        wr.writerow(result)
-                    wr.writeheader()
-            except Exception as e:
-                raise UserException(f"Error occurred while extracting data from Elasticsearch: {e}")
-            finally:
-                # Ukončení SSH tunelu, pokud je aktivní
-                if hasattr(self, 'ssh_tunnel') and self.ssh_tunnel.is_active:
-                    self.ssh_tunnel.stop()
-
+            # Zápis manifestu a stavového souboru
             self.write_manifest(out_table)
             statefile[out_table_name] = wr.fieldnames
             self.write_state_file(statefile)
-            self.cleanup(temp_folder)
+            logging.info("Manifest and state file successfully written.")
 
-        except Exception as e:
-            logging.error(f"Error during execution: {e}")
+        except UserException as ue:
+            logging.error(f"User error: {ue}")
             raise
+        except Exception as e:
+            logging.error(f"Unexpected error during execution: {e}")
+            raise
+        finally:
+            # Ukončení SSH tunelu, pokud byl spuštěn
+            if ssh_tunnel_started and hasattr(self, 'ssh_tunnel') and self.ssh_tunnel.is_active:
+                logging.info("Stopping SSH tunnel...")
+                self.ssh_tunnel.stop()
+                logging.info("SSH tunnel stopped successfully.")
+
+            # Úklid dočasných souborů
+            if os.path.exists(temp_folder):
+                logging.info(f"Cleaning up temporary folder: {temp_folder}")
+                self.cleanup(temp_folder)
+                logging.info("Temporary folder cleaned up successfully.")
 
     @staticmethod
     def run_legacy_client() -> None:
@@ -296,8 +327,8 @@ class Component(ComponentBase):
             logging.info(
                 f"SSH tunnel is enabled: {self.ssh_server.local_bind_address} -> {self.ssh_server.remote_bind_address}")
         except BaseSSHTunnelForwarderError as e:
-            raise UserException(
-                "Failed to establish SSH connection. Recheck all SSH configuration parameters") from e
+            logging.error("Failed to establish SSH tunnel. Recheck SSH configuration.")
+            raise
 
     @staticmethod
     def is_valid_rsa(rsa_key) -> (bool, str):
