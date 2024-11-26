@@ -69,25 +69,20 @@ class Component(ComponentBase):
             logging.info("Initializing Elasticsearch client...")
             client = self.get_client(params)
 
-            # Test connection
-            logging.info("Pinging Elasticsearch to verify connection...")
-            if client.ping():
-                logging.info("Elasticsearch connection successful.")
-            else:
-                logging.error("Elasticsearch ping failed.")
-                raise UserException("Failed to ping Elasticsearch server.")
+            # Získání seznamu indexů přímo, bez ping()
+            try:
+                logging.info("Fetching list of available indices directly without ping...")
+                indices = client.indices.get_alias("*")
+                index_names = list(indices.keys())
+                if not index_names:
+                    logging.warning("No indices found in Elasticsearch.")
+                else:
+                    logging.info(f"Available indices: {index_names}")
+            except Exception as e:
+                logging.error(f"Error while fetching indices: {e}")
+                raise UserException(f"Failed to fetch indices: {e}")
 
-            # Fetch indices
-            logging.info("Fetching list of available indices...")
-            indices = client.indices.get_alias("*")
-            index_names = list(indices.keys())
-
-            if not index_names:
-                logging.warning("No indices found in Elasticsearch.")
-            else:
-                logging.info(f"Available indices: {index_names}")
-
-            # Save to CSV
+            # Uložení seznamu indexů do CSV souboru (volitelné)
             if save_to_csv:
                 logging.info(f"Saving indices to CSV file: {save_to_csv}")
                 with open(save_to_csv, mode='w', newline='', encoding='utf-8') as csv_file:
@@ -114,6 +109,9 @@ class Component(ComponentBase):
             auth_type = auth_params.get(KEY_AUTH_TYPE, "no_auth")
             setup = {"host": db_hostname, "port": db_port, "scheme": scheme}
             logging.info(f"Elasticsearch setup: {setup} with auth_type: {auth_type}")
+
+            # Přidání logování endpointu
+            logging.info(f"Using endpoint: {scheme}://{db_hostname}:{db_port}")
 
             if auth_type == "basic":
                 username = auth_params.get(KEY_USERNAME)
