@@ -112,7 +112,9 @@ class Component(ComponentBase):
             raise UserException(f"Failed to fetch indices: {e}")
 
     def get_client(self, params: dict) -> ElasticsearchClient:
-        """Creates and returns an Elasticsearch client."""
+        """
+        Creates and returns an Elasticsearch client with detailed logging and a root endpoint test.
+        """
         try:
             logging.info("Preparing to initialize Elasticsearch client...")
             auth_params = params.get(KEY_GROUP_AUTH, {})
@@ -121,13 +123,16 @@ class Component(ComponentBase):
             db_port = db_params.get(KEY_DB_PORT)
             scheme = params.get(KEY_SCHEME, "http")
 
+            # Basic setup
             auth_type = auth_params.get(KEY_AUTH_TYPE, "no_auth")
             setup = {"host": db_hostname, "port": db_port, "scheme": scheme}
             logging.info(f"Elasticsearch setup: {setup} with auth_type: {auth_type}")
 
-            # Přidání logování endpointu
-            logging.info(f"Using endpoint: {scheme}://{db_hostname}:{db_port}")
+            # Log endpoint for visibility
+            endpoint = f"{scheme}://{db_hostname}:{db_port}"
+            logging.info(f"Using endpoint: {endpoint}")
 
+            # Create client based on auth_type
             if auth_type == "basic":
                 username = auth_params.get(KEY_USERNAME)
                 password = auth_params.get(KEY_PASSWORD)
@@ -151,10 +156,15 @@ class Component(ComponentBase):
             else:
                 raise UserException(f"Unsupported auth_type: {auth_type}")
 
-            # Test connection
-            logging.info("Testing Elasticsearch client connection with ping...")
-            if not client.ping():
-                raise UserException(f"Connection to Elasticsearch at {db_hostname}:{db_port} failed.")
+            # Test connection by fetching root endpoint
+            try:
+                logging.info("Testing Elasticsearch root endpoint...")
+                response = client.perform_request('GET', '/')
+                logging.info(f"Root endpoint response: {json.dumps(response, indent=2)}")
+            except Exception as e:
+                logging.error(f"Failed to reach Elasticsearch root endpoint: {e}")
+                raise UserException(f"Error connecting to Elasticsearch: {e}")
+
             logging.info("Elasticsearch client initialized successfully.")
             return client
 
