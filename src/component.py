@@ -1,20 +1,20 @@
-import json
+# import json
 import logging
-import uuid
+# import uuid
 import os
 import shutil
-import dateparser
-import pytz
+# import dateparser
+# import pytz
 import csv
 
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
-from keboola.csvwriter import ElasticDictWriter
+# from keboola.csvwriter import ElasticDictWriter
 
 from client.es_client import ElasticsearchClient
-from legacy_client.legacy_es_client import LegacyClient
-from client.ssh_utils import SomeSSHException, get_private_key
-from sshtunnel import SSHTunnelForwarder, BaseSSHTunnelForwarderError
+# from legacy_client.legacy_es_client import LegacyClient
+from client.ssh_utils import get_private_key
+from sshtunnel import SSHTunnelForwarder
 
 # Configuration constants
 KEY_GROUP_DB = 'db'
@@ -101,6 +101,88 @@ class Component(ComponentBase):
             logging.error(f"Error while fetching indices: {e}")
             raise UserException(f"Failed to fetch indices: {e}")
 
+    def get_client(self, params: dict) -> ElasticsearchClient:
+        """Creates and returns an Elasticsearch client."""
+        try:
+            logging.info("Preparing to initialize Elasticsearch client...")
+            auth_params = params.get(KEY_GROUP_AUTH, {})
+            db_params = params.get(KEY_GROUP_DB, {})
+            db_hostname = db_params.get(KEY_DB_HOSTNAME)
+            db_port = db_params.get(KEY_DB_PORT)
+            scheme = params.get(KEY_SCHEME, "http")
+
+            auth_type = auth_params.get(KEY_AUTH_TYPE, "no_auth")
+            setup = {"host": db_hostname, "port": db_port, "scheme": scheme}
+            logging.info(f"Elasticsearch setup: {setup} with auth_type: {auth_type}")
+
+            if auth_type == "basic":
+                username = auth_params.get(KEY_USERNAME)
+                password = auth_params.get(KEY_PASSWORD)
+                if not username or not password:
+                    raise UserException("Both username and password must be provided for basic auth.")
+                client = ElasticsearchClient([setup], scheme, http_auth=(username, password))
+                logging.info("Using basic authentication for Elasticsearch.")
+
+            elif auth_type == "api_key":
+                api_key_id = auth_params.get(KEY_API_KEY_ID)
+                api_key = auth_params.get(KEY_API_KEY)
+                if not api_key_id or not api_key:
+                    raise UserException("API Key ID and API Key must be provided for API Key authentication.")
+                client = ElasticsearchClient([setup], scheme, api_key=(api_key_id, api_key))
+                logging.info("Using API Key authentication for Elasticsearch.")
+
+            elif auth_type == "no_auth":
+                client = ElasticsearchClient([setup], scheme)
+                logging.info("Using no authentication for Elasticsearch.")
+
+            else:
+                raise UserException(f"Unsupported auth_type: {auth_type}")
+
+            # Test connection
+            logging.info("Testing Elasticsearch client connection with ping...")
+            if not client.ping():
+                raise UserException(f"Connection to Elasticsearch at {db_hostname}:{db_port} failed.")
+            logging.info("Elasticsearch client initialized successfully.")
+            return client
+
+        except Exception as e:
+            logging.error(f"Error during Elasticsearch client initialization: {e}")
+            raise UserException(f"Failed to initialize Elasticsearch client: {e}")
+
+    def run(self):
+        """Main execution logic for the component."""
+        self.validate_configuration_parameters(REQUIRED_PARAMETERS)
+        params = self.configuration.parameters
+        temp_folder = os.path.join(self.data_folder_path, "temp")
+        ssh_tunnel_started = False
+
+        try:
+            logging.info("Starting component execution...")
+            if params.get(KEY_SSH, {}).get(KEY_USE_SSH, False):
+                logging.info("SSH tunneling is enabled. Setting up...")
+                self._create_and_start_ssh_tunnel(params)
+                ssh_tunnel_started = True
+
+            self.log_available_indices(params, save_to_csv="available_indices.csv")
+            logging.info("Elasticsearch indices verification completed.")
+
+            # Placeholder for further logic
+            logging.info("Execution completed successfully.")
+
+        except Exception as e:
+            logging.error(f"Unexpected error during component execution: {e}")
+            raise
+        finally:
+            if ssh_tunnel_started and hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
+                logging.info("Stopping SSH tunnel...")
+                self.ssh_tunnel.stop()
+                logging.info("SSH tunnel stopped.")
+
+            if os.path.exists(temp_folder):
+                logging.info(f"Cleaning up temporary folder: {temp_folder}")
+                shutil.rmtree(temp_folder)
+                logging.info("Temporary folder cleaned up.")
+
     def _create_and_start_ssh_tunnel(self, params):
         """Sets up and starts the SSH tunnel."""
         try:
@@ -144,39 +226,6 @@ class Component(ComponentBase):
             return False, "RSA key does not contain newline characters."
         return True, ""
 
-    def run(self):
-        """Main execution logic for the component."""
-        self.validate_configuration_parameters(REQUIRED_PARAMETERS)
-        params = self.configuration.parameters
-        temp_folder = os.path.join(self.data_folder_path, "temp")
-        ssh_tunnel_started = False
-
-        try:
-            logging.info("Starting component execution...")
-            if params.get(KEY_SSH, {}).get(KEY_USE_SSH, False):
-                logging.info("SSH tunneling is enabled. Setting up...")
-                self._create_and_start_ssh_tunnel(params)
-                ssh_tunnel_started = True
-
-            self.log_available_indices(params, save_to_csv="available_indices.csv")
-            logging.info("Elasticsearch indices verification completed.")
-
-            # Placeholder for further logic
-            logging.info("Execution completed successfully.")
-
-        except Exception as e:
-            logging.error(f"Unexpected error during component execution: {e}")
-            raise
-        finally:
-            if ssh_tunnel_started and hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
-                logging.info("Stopping SSH tunnel...")
-                self.ssh_tunnel.stop()
-                logging.info("SSH tunnel stopped.")
-
-            if os.path.exists(temp_folder):
-                logging.info(f"Cleaning up temporary folder: {temp_folder}")
-                shutil.rmtree(temp_folder)
-                logging.info("Temporary folder cleaned up.")
 
 # Main entrypoint
 if __name__ == "__main__":
