@@ -328,7 +328,7 @@ class Component(ComponentBase):
                 f"SSH tunnel is enabled: {self.ssh_server.local_bind_address} -> {self.ssh_server.remote_bind_address}")
         except BaseSSHTunnelForwarderError as e:
             logging.error("Failed to establish SSH tunnel. Recheck SSH configuration.")
-            raise
+            raise UserException(e) from e
 
     @staticmethod
     def is_valid_rsa(rsa_key) -> (bool, str):
