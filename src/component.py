@@ -5,6 +5,7 @@ import os
 import shutil
 import dateparser
 import pytz
+import csv
 
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
