@@ -65,13 +65,13 @@ class Component(ComponentBase):
 
     def test_root_endpoint(self, params: dict):
         """
-        Ověří, že komponenta dokáže získat stejnou odpověď jako prohlížeč
-        z root endpointu OpenSearch serveru.
+        Ověří připojení k root endpointu OpenSearch serveru a loguje výsledek.
         """
         try:
             logging.info("Testing root endpoint of OpenSearch server...")
             client = self.get_client(params)
-            response = client.perform_request('GET', '/')
+            response = client.perform_request('GET', '/')  # Dotaz na root endpoint
+            logging.info("Successfully fetched root endpoint response.")
             logging.info(f"Root endpoint response: {json.dumps(response, indent=2)}")
             return response
         except Exception as e:
