@@ -67,21 +67,25 @@ class Component(ComponentBase):
 
     def log_available_indices(self, params: dict, save_to_csv: str = None):
         """
-        Loguje seznam dostupných indexů a volitelně je ukládá do CSV souboru.
-
-        :param params: Konfigurační parametry pro připojení k Elasticsearch.
-        :param save_to_csv: Cesta k CSV souboru, kam se indexy uloží (volitelné).
+        Loguje seznam dostupných indexů a volitelně ověřuje připojení.
         """
         try:
-            client = self.get_client(params)  # Použití existující metody pro získání klienta
-            logging.info("Fetching list of available indices...")
+            client = self.get_client(params)
+            logging.info("Testing connection to Elasticsearch...")
 
-            # Získání všech indexů
+            # Test základního připojení
+            if client.ping():
+                logging.info("Connection to Elasticsearch: OK")
+            else:
+                logging.error("Connection to Elasticsearch: FAILED")
+                raise UserException("Ping to Elasticsearch failed.")
+
+            # Získání všech indexů (test dotazu)
             indices = client.indices.get_alias("*")
             index_names = list(indices.keys())
             logging.info(f"Available indices: {index_names}")
 
-            # Uložení do CSV, pokud je cesta specifikována
+            # Uložení do CSV, pokud je specifikováno
             if save_to_csv:
                 with open(save_to_csv, mode='w', newline='', encoding='utf-8') as csv_file:
                     writer = csv.writer(csv_file)
@@ -271,7 +275,7 @@ class Component(ComponentBase):
         with open(full_path, "w") as json_file:
             json.dump(results, json_file, indent=4)
 
-    def _create_and_start_ssh_tunnel(self, params) -> None:
+    def _create_and_start_ssh_tunnel(self, params):
         ssh_params = params.get(KEY_SSH)
         ssh_username = ssh_params.get(KEY_SSH_USERNAME)
         keys = ssh_params.get(KEY_SSH_KEYS)
@@ -281,16 +285,18 @@ class Component(ComponentBase):
         db_params = params.get(KEY_GROUP_DB)
         db_hostname = db_params.get(KEY_DB_HOSTNAME)
         db_port = db_params.get(KEY_DB_PORT)
+
+        # Vytvoření SSH tunelu
         self._create_ssh_tunnel(ssh_username, private_key, ssh_tunnel_host, ssh_tunnel_port,
                                 db_hostname, db_port)
 
         try:
             self.ssh_server.start()
+            logging.info(
+                f"SSH tunnel is enabled: {self.ssh_server.local_bind_address} -> {self.ssh_server.remote_bind_address}")
         except BaseSSHTunnelForwarderError as e:
             raise UserException(
                 "Failed to establish SSH connection. Recheck all SSH configuration parameters") from e
-
-        logging.info("SSH tunnel is enabled.")
 
     @staticmethod
     def is_valid_rsa(rsa_key) -> (bool, str):
