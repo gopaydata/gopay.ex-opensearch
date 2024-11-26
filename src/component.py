@@ -1,8 +1,8 @@
-# import json
+import json
 import logging
 # import uuid
-import os
-import shutil
+# import os
+# import shutil
 # import dateparser
 # import pytz
 import csv
@@ -178,7 +178,7 @@ class Component(ComponentBase):
                 ssh_tunnel_started = True
 
             # Test root endpoint
-            root_response = self.test_root_endpoint(params)
+            self.test_root_endpoint(params)  # Přímo voláme metodu, bez přiřazení výsledku
             logging.info("Root endpoint test passed.")
 
             # Ověření indexů
