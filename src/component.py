@@ -63,6 +63,21 @@ class Component(ComponentBase):
     def __init__(self):
         super().__init__()
 
+    def test_root_endpoint(self, params: dict):
+        """
+        Ověří, že komponenta dokáže získat stejnou odpověď jako prohlížeč
+        z root endpointu OpenSearch serveru.
+        """
+        try:
+            logging.info("Testing root endpoint of OpenSearch server...")
+            client = self.get_client(params)
+            response = client.perform_request('GET', '/')
+            logging.info(f"Root endpoint response: {json.dumps(response, indent=2)}")
+            return response
+        except Exception as e:
+            logging.error(f"Error testing root endpoint: {e}")
+            raise UserException(f"Failed to fetch root endpoint response: {e}")
+
     def log_available_indices(self, params: dict, save_to_csv: str = None):
         """Logs the list of available indices."""
         try:
@@ -151,20 +166,26 @@ class Component(ComponentBase):
         """Main execution logic for the component."""
         self.validate_configuration_parameters(REQUIRED_PARAMETERS)
         params = self.configuration.parameters
-        temp_folder = os.path.join(self.data_folder_path, "temp")
-        ssh_tunnel_started = False
 
+        ssh_tunnel_started = False
         try:
             logging.info("Starting component execution...")
+
+            # Nastavení SSH tunelu, pokud je povoleno
             if params.get(KEY_SSH, {}).get(KEY_USE_SSH, False):
                 logging.info("SSH tunneling is enabled. Setting up...")
                 self._create_and_start_ssh_tunnel(params)
                 ssh_tunnel_started = True
 
+            # Test root endpoint
+            root_response = self.test_root_endpoint(params)
+            logging.info("Root endpoint test passed.")
+
+            # Ověření indexů
             self.log_available_indices(params, save_to_csv="available_indices.csv")
             logging.info("Elasticsearch indices verification completed.")
 
-            # Placeholder for further logic
+            # Další operace (placeholder pro hlavní logiku)
             logging.info("Execution completed successfully.")
 
         except Exception as e:
@@ -175,11 +196,6 @@ class Component(ComponentBase):
                 logging.info("Stopping SSH tunnel...")
                 self.ssh_tunnel.stop()
                 logging.info("SSH tunnel stopped.")
-
-            if os.path.exists(temp_folder):
-                logging.info(f"Cleaning up temporary folder: {temp_folder}")
-                shutil.rmtree(temp_folder)
-                logging.info("Temporary folder cleaned up.")
 
     def _create_and_start_ssh_tunnel(self, params):
         """Sets up and starts the SSH tunnel."""
