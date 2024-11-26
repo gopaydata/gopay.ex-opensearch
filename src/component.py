@@ -65,13 +65,54 @@ class Component(ComponentBase):
     def __init__(self):
         super().__init__()
 
+    def log_available_indices(self, params: dict, save_to_csv: str = None):
+        """
+        Loguje seznam dostupných indexů a volitelně je ukládá do CSV souboru.
+
+        :param params: Konfigurační parametry pro připojení k Elasticsearch.
+        :param save_to_csv: Cesta k CSV souboru, kam se indexy uloží (volitelné).
+        """
+        try:
+            client = self.get_client(params)  # Použití existující metody pro získání klienta
+            logging.info("Fetching list of available indices...")
+
+            # Získání všech indexů
+            indices = client.indices.get_alias("*")
+            index_names = list(indices.keys())
+            logging.info(f"Available indices: {index_names}")
+
+            # Uložení do CSV, pokud je cesta specifikována
+            if save_to_csv:
+                with open(save_to_csv, mode='w', newline='', encoding='utf-8') as csv_file:
+                    writer = csv.writer(csv_file)
+                    writer.writerow(["Index Name"])
+                    for index_name in index_names:
+                        writer.writerow([index_name])
+                logging.info(f"Index list saved to {save_to_csv}")
+
+        except Exception as e:
+            logging.error(f"Error fetching indices: {e}")
+            raise UserException(f"Failed to retrieve indices: {str(e)}")
+
     def run(self):
         self.validate_configuration_parameters(REQUIRED_PARAMETERS)
         params = self.configuration.parameters
 
+        # Legacy SSH klient
         if params.get(KEY_LEGACY_SSH):
             self.run_legacy_client()
-        else:
+            return
+
+        # Nastavení tunelu, pokud je SSH povoleno
+        ssh_options = params.get(KEY_SSH)
+        if not isinstance(ssh_options, list):
+            if ssh_options.get(KEY_USE_SSH, False):
+                self._create_and_start_ssh_tunnel(params)
+
+        try:
+            # Volání logování dostupných indexů
+            self.log_available_indices(params, save_to_csv="available_indices.csv")
+
             out_table_name = params.get(KEY_STORAGE_TABLE, False)
             if not out_table_name:
                 out_table_name = "ex-elasticsearch-result"
@@ -82,12 +123,6 @@ class Component(ComponentBase):
 
             index_name, query = self.parse_index_parameters(params)
             statefile = self.get_state_file()
-
-            ssh_options = params.get(KEY_SSH)
-            # fix eternal KBC issue
-            if not isinstance(ssh_options, list):
-                if ssh_options.get(KEY_USE_SSH, False):
-                    self._create_and_start_ssh_tunnel(params)
 
             client = self.get_client(params)
 
@@ -104,8 +139,9 @@ class Component(ComponentBase):
                         wr.writerow(result)
                     wr.writeheader()
             except Exception as e:
-                raise UserException(f"Error occured while extracting data from Elasticsearch: {e}")
+                raise UserException(f"Error occurred while extracting data from Elasticsearch: {e}")
             finally:
+                # Ukončení SSH tunelu, pokud je aktivní
                 if hasattr(self, 'ssh_tunnel') and self.ssh_tunnel.is_active:
                     self.ssh_tunnel.stop()
 
@@ -113,6 +149,10 @@ class Component(ComponentBase):
             statefile[out_table_name] = wr.fieldnames
             self.write_state_file(statefile)
             self.cleanup(temp_folder)
+
+        except Exception as e:
+            logging.error(f"Error during execution: {e}")
+            raise
 
     @staticmethod
     def run_legacy_client() -> None:
