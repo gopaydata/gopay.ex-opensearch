@@ -92,7 +92,7 @@ class Component(ComponentBase):
 
     def get_client(self, params: dict) -> ElasticsearchClient:
         """
-        Creates and returns an Elasticsearch client with detailed logging and an option to ignore HTTPS certs.
+        Creates and returns an Elasticsearch client with detailed logging.
         """
         try:
             logging.info("Preparing to initialize Elasticsearch client...")
@@ -117,20 +117,20 @@ class Component(ComponentBase):
                 password = auth_params.get(KEY_PASSWORD)
                 if not username or not password:
                     raise UserException("Both username and password must be provided for basic auth.")
-                client = ElasticsearchClient([setup], scheme, http_auth=(username, password), verify_certs=False)
-                logging.info("Using basic authentication for Elasticsearch (ignoring certs).")
+                client = ElasticsearchClient([setup], scheme, http_auth=(username, password))
+                logging.info("Using basic authentication for Elasticsearch.")
 
             elif auth_type == "api_key":
                 api_key_id = auth_params.get(KEY_API_KEY_ID)
                 api_key = auth_params.get(KEY_API_KEY)
                 if not api_key_id or not api_key:
                     raise UserException("API Key ID and API Key must be provided for API Key authentication.")
-                client = ElasticsearchClient([setup], scheme, api_key=(api_key_id, api_key), verify_certs=False)
-                logging.info("Using API Key authentication for Elasticsearch (ignoring certs).")
+                client = ElasticsearchClient([setup], scheme, api_key=(api_key_id, api_key))
+                logging.info("Using API Key authentication for Elasticsearch.")
 
             elif auth_type == "no_auth":
-                client = ElasticsearchClient([setup], scheme, verify_certs=False)
-                logging.info("Using no authentication for Elasticsearch (ignoring certs).")
+                client = ElasticsearchClient([setup], scheme)
+                logging.info("Using no authentication for Elasticsearch.")
 
             else:
                 raise UserException(f"Unsupported auth_type: {auth_type}")
