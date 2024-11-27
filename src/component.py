@@ -1,20 +1,11 @@
 import json
 import logging
-# import uuid
-# import os
-# import shutil
-# import dateparser
-# import pytz
 import csv
-
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
-# from keboola.csvwriter import ElasticDictWriter
-
 from client.es_client import ElasticsearchClient
-# from legacy_client.legacy_es_client import LegacyClient
 from client.ssh_utils import get_private_key
-from sshtunnel import SSHTunnelForwarder
+from sshtunnel import SSHTunnelForwarder, BaseSSHTunnelForwarderError
 
 # Configuration constants
 KEY_GROUP_DB = 'db'
@@ -33,16 +24,6 @@ KEY_API_KEY_ID = 'api_key_id'
 KEY_API_KEY = '#api_key'
 KEY_SCHEME = 'scheme'
 
-KEY_GROUP_DATE = 'date'
-KEY_DATE_APPEND = 'append_date'
-KEY_DATE_FORMAT = 'format'
-KEY_DATE_SHIFT = 'shift'
-KEY_DATE_TZ = 'time_zone'
-DATE_PLACEHOLDER = '{{date}}'
-DEFAULT_DATE = 'yesterday'
-DEFAULT_DATE_FORMAT = '%Y-%m-%d'
-DEFAULT_TZ = 'UTC'
-
 KEY_SSH = "ssh_options"
 KEY_USE_SSH = "enabled"
 KEY_SSH_KEYS = "keys"
@@ -52,8 +33,6 @@ KEY_SSH_TUNNEL_HOST = "sshHost"
 KEY_SSH_TUNNEL_PORT = "sshPort"
 
 LOCAL_BIND_ADDRESS = "127.0.0.1"
-KEY_LEGACY_SSH = 'ssh'
-
 REQUIRED_PARAMETERS = [KEY_GROUP_DB]
 RSA_HEADER = "-----BEGIN RSA PRIVATE KEY-----"
 
@@ -75,7 +54,7 @@ class Component(ComponentBase):
             logging.info(f"Root endpoint response: {json.dumps(response, indent=2)}")
             return response
         except Exception as e:
-            logging.error(f"Error testing root endpoint: {e}")
+            logging.error(f"Error testing root endpoint: {type(e).__name__} - {str(e)}")
             raise UserException(f"Failed to fetch root endpoint response: {e}")
 
     def log_available_indices(self, params: dict, save_to_csv: str = None):
@@ -94,7 +73,7 @@ class Component(ComponentBase):
                 else:
                     logging.info(f"Available indices: {index_names}")
             except Exception as e:
-                logging.error(f"Error while fetching indices: {e}")
+                logging.error(f"Error while fetching indices: {type(e).__name__} - {str(e)}")
                 raise UserException(f"Failed to fetch indices: {e}")
 
             # Uložení seznamu indexů do CSV souboru (volitelné)
@@ -108,12 +87,12 @@ class Component(ComponentBase):
                 logging.info(f"Indices successfully saved to {save_to_csv}")
 
         except Exception as e:
-            logging.error(f"Error while fetching indices: {e}")
+            logging.error(f"Error while fetching indices: {type(e).__name__} - {str(e)}")
             raise UserException(f"Failed to fetch indices: {e}")
 
     def get_client(self, params: dict) -> ElasticsearchClient:
         """
-        Creates and returns an Elasticsearch client with detailed logging and a root endpoint test.
+        Creates and returns an Elasticsearch client with detailed logging and an option to ignore HTTPS certs.
         """
         try:
             logging.info("Preparing to initialize Elasticsearch client...")
@@ -138,20 +117,20 @@ class Component(ComponentBase):
                 password = auth_params.get(KEY_PASSWORD)
                 if not username or not password:
                     raise UserException("Both username and password must be provided for basic auth.")
-                client = ElasticsearchClient([setup], scheme, http_auth=(username, password))
-                logging.info("Using basic authentication for Elasticsearch.")
+                client = ElasticsearchClient([setup], scheme, http_auth=(username, password), verify_certs=False)
+                logging.info("Using basic authentication for Elasticsearch (ignoring certs).")
 
             elif auth_type == "api_key":
                 api_key_id = auth_params.get(KEY_API_KEY_ID)
                 api_key = auth_params.get(KEY_API_KEY)
                 if not api_key_id or not api_key:
                     raise UserException("API Key ID and API Key must be provided for API Key authentication.")
-                client = ElasticsearchClient([setup], scheme, api_key=(api_key_id, api_key))
-                logging.info("Using API Key authentication for Elasticsearch.")
+                client = ElasticsearchClient([setup], scheme, api_key=(api_key_id, api_key), verify_certs=False)
+                logging.info("Using API Key authentication for Elasticsearch (ignoring certs).")
 
             elif auth_type == "no_auth":
-                client = ElasticsearchClient([setup], scheme)
-                logging.info("Using no authentication for Elasticsearch.")
+                client = ElasticsearchClient([setup], scheme, verify_certs=False)
+                logging.info("Using no authentication for Elasticsearch (ignoring certs).")
 
             else:
                 raise UserException(f"Unsupported auth_type: {auth_type}")
@@ -162,14 +141,14 @@ class Component(ComponentBase):
                 response = client.perform_request('GET', '/')
                 logging.info(f"Root endpoint response: {json.dumps(response, indent=2)}")
             except Exception as e:
-                logging.error(f"Failed to reach Elasticsearch root endpoint: {e}")
+                logging.error(f"Failed to reach Elasticsearch root endpoint: {type(e).__name__} - {str(e)}")
                 raise UserException(f"Error connecting to Elasticsearch: {e}")
 
             logging.info("Elasticsearch client initialized successfully.")
             return client
 
         except Exception as e:
-            logging.error(f"Error during Elasticsearch client initialization: {e}")
+            logging.error(f"Error during Elasticsearch client initialization: {type(e).__name__} - {str(e)}")
             raise UserException(f"Failed to initialize Elasticsearch client: {e}")
 
     def run(self):
@@ -188,18 +167,17 @@ class Component(ComponentBase):
                 ssh_tunnel_started = True
 
             # Test root endpoint
-            self.test_root_endpoint(params)  # Přímo voláme metodu, bez přiřazení výsledku
+            self.test_root_endpoint(params)
             logging.info("Root endpoint test passed.")
 
             # Ověření indexů
             self.log_available_indices(params, save_to_csv="available_indices.csv")
             logging.info("Elasticsearch indices verification completed.")
 
-            # Další operace (placeholder pro hlavní logiku)
             logging.info("Execution completed successfully.")
 
         except Exception as e:
-            logging.error(f"Unexpected error during component execution: {e}")
+            logging.error(f"Unexpected error during component execution: {type(e).__name__} - {str(e)}")
             raise
         finally:
             if ssh_tunnel_started and hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
