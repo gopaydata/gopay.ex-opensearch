@@ -5,7 +5,7 @@ from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
 from client.es_client import ElasticsearchClient
 from client.ssh_utils import get_private_key
-from sshtunnel import SSHTunnelForwarder, BaseSSHTunnelForwarderError
+from sshtunnel import SSHTunnelForwarder
 
 # Configuration constants
 KEY_GROUP_DB = 'db'
