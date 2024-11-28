@@ -44,18 +44,36 @@ class Component(ComponentBase):
 
     def test_root_endpoint(self, params: dict):
         """
-        Ověří připojení k root endpointu OpenSearch serveru a loguje výsledek.
+        Testuje připojení k root endpointu a konkrétnímu indexu v OpenSearch serveru.
         """
         try:
             logging.info("Testing root endpoint of OpenSearch server...")
             client = self.get_client(params)
-            response = client.perform_request('GET', '/')  # Dotaz na root endpoint
-            logging.info("Successfully fetched root endpoint response.")
-            logging.info(f"Root endpoint response: {json.dumps(response, indent=2)}")
-            return response
+
+            # Test root endpoint
+            try:
+                root_response = client.perform_request('GET', '/')
+                logging.info(f"Root endpoint response: {json.dumps(root_response, indent=2)}")
+            except Exception as e:
+                logging.error(f"Error testing root endpoint: {e}")
+                raise UserException(f"Failed to fetch root endpoint response: {e}")
+
+            # Test konkrétního indexu
+            index_name = params.get(KEY_INDEX_NAME, None)
+            if index_name:
+                logging.info(f"Testing specific index: {index_name}")
+                try:
+                    response = client.perform_request('GET', f'/{index_name}')
+                    logging.info(f"Index endpoint response: {json.dumps(response, indent=2)}")
+                except Exception as e:
+                    logging.error(f"Error testing index {index_name}: {e}")
+                    raise UserException(f"Failed to fetch index {index_name}: {e}")
+            else:
+                logging.warning("No index name provided in parameters. Skipping index test.")
+
         except Exception as e:
-            logging.error(f"Error testing root endpoint: {type(e).__name__} - {str(e)}")
-            raise UserException(f"Failed to fetch root endpoint response: {e}")
+            logging.error(f"Error during root endpoint test: {e}")
+            raise UserException(f"Error during root endpoint test: {e}")
 
     def log_available_indices(self, params: dict, save_to_csv: str = None):
         """Logs the list of available indices."""
