@@ -126,17 +126,9 @@ class Component(ComponentBase):
                 if not api_key_id or not api_key:
                     raise UserException("API Key ID and API Key must be provided for API Key authentication.")
 
-                # Přidání logování pro testování API klíče
                 logging.info(f"Using API Key authentication with ID: {api_key_id}")
-                logging.info(f"Testing API Key authentication with endpoint: {endpoint}")
-                try:
-                    client = ElasticsearchClient([setup], scheme, api_key=(api_key_id, api_key))
-                    response = client.perform_request('GET', '/')
-                    logging.info(
-                        f"Successfully authenticated. Root endpoint response: {json.dumps(response, indent=2)}")
-                except Exception as e:
-                    logging.error(f"Authentication failed: {type(e).__name__} - {str(e)}")
-                    raise UserException(f"Failed to authenticate with API Key: {e}")
+                client = ElasticsearchClient([setup], scheme, api_key=(api_key_id, api_key))
+                logging.info("API Key client created successfully.")
 
             elif auth_type == "no_auth":
                 client = ElasticsearchClient([setup], scheme)
@@ -144,6 +136,16 @@ class Component(ComponentBase):
 
             else:
                 raise UserException(f"Unsupported auth_type: {auth_type}")
+
+            # Test connection by fetching root endpoint
+            try:
+                logging.info("Testing Elasticsearch root endpoint...")
+                response = client.perform_request('GET', '/')
+                logging.info(f"HTTP Status Code: {response.status}")
+                logging.info(f"Root endpoint response: {json.dumps(response, indent=2)}")
+            except Exception as e:
+                logging.error(f"Failed to reach Elasticsearch root endpoint: {type(e).__name__} - {str(e)}")
+                raise UserException(f"Error connecting to Elasticsearch: {e}")
 
             logging.info("Elasticsearch client initialized successfully.")
             return client
