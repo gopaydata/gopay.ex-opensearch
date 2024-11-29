@@ -49,9 +49,13 @@ class Component(ComponentBase):
     def __init__(self):
         super().__init__()
 
-    def connection_test(self, username=KEY_API_KEY_ID, password=KEY_API_KEY):
+    def connection_test(self, params):
         # URL endpointu
         url = "https://os.gopay.com/_search"
+
+        auth_params = params.get(KEY_GROUP_AUTH, {})
+        username=auth_params.get(KEY_API_KEY_ID)
+        password=auth_params.get(KEY_API_KEY)
 
         # Odeslání GET požadavku s autentizací
         try:
@@ -215,7 +219,7 @@ class Component(ComponentBase):
 
             # Test Připojení
             logging.info("Connection test (https://os.gopay.com/_search)...")
-            self.connection_test()
+            self.connection_test(params)
 
             # Test root endpoint
             # self.test_root_endpoint(params)
