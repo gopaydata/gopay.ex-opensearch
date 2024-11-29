@@ -215,7 +215,7 @@ class Component(ComponentBase):
 
             # Test Připojení
             logging.info("Connection test (https://os.gopay.com/_search)...")
-            connection_test()
+            self.connection_test()
 
             # Test root endpoint
             # self.test_root_endpoint(params)
