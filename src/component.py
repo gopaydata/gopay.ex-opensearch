@@ -51,11 +51,11 @@ class Component(ComponentBase):
 
     def connection_test(self, params):
         # URL endpointu
-        url = "https://os.gopay.com/_search"
+        url = "https://os.gopay.com:443/_search"
 
         auth_params = params.get(KEY_GROUP_AUTH, {})
-        username = auth_params.get(KEY_API_KEY_ID)
-        password = auth_params.get(KEY_API_KEY)
+        username = auth_params.get(KEY_USERNAME)
+        password = auth_params.get(KEY_PASSWORD)
 
         # Odeslání GET požadavku s autentizací
         try:
