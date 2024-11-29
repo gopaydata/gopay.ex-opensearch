@@ -169,8 +169,6 @@ class Component(ComponentBase):
             json.dump(debug_data, debug_file, indent=2)
         logging.info("Debug info exported to debug_info.json.")
 
-
-
     def run(self):
         """Main execution logic for the component."""
         self.validate_configuration_parameters(REQUIRED_PARAMETERS)
