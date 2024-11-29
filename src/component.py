@@ -1,11 +1,20 @@
 import json
 import logging
 import csv
+from importlib.metadata import requires
+
+import requests
+from requests.auth import HTTPBasicAuth
+
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
+from urllib3 import request
+
 from client.es_client import ElasticsearchClient
 from client.ssh_utils import get_private_key
 from sshtunnel import SSHTunnelForwarder
+
+from data.Test import connection_test
 
 # Configuration constants
 KEY_GROUP_DB = 'db'
@@ -41,6 +50,25 @@ class Component(ComponentBase):
 
     def __init__(self):
         super().__init__()
+
+    def connection_test(self, username=KEY_API_KEY_ID, password=KEY_API_KEY):
+        # URL endpointu
+        url = "https://os.gopay.com/_search"
+
+        # Odeslání GET požadavku s autentizací
+        try:
+            response = requests.get(url, auth=HTTPBasicAuth(username, password))
+
+            # Výpis odpovědi
+            if response.status_code == 403:
+                logging.info("Access denied. Response:")
+            elif response.status_code == 200:
+                logging.info("Access successful. Response:")
+            else:
+                logging.info(f"Unexpected status code {response.status_code}. Response:")
+            logging.info(response.json())
+        except requests.exceptions.RequestException as e:
+            logging.info(f"Error occurred while connecting to the API: {e}")
 
     def test_root_endpoint(self, params: dict):
         """
@@ -187,15 +215,19 @@ class Component(ComponentBase):
                 self._create_and_start_ssh_tunnel(params)
                 ssh_tunnel_started = True
 
+            # Test Připojení
+            logging.info("Connection test (https://os.gopay.com/_search)...")
+            connection_test()
+
             # Test root endpoint
-            self.test_root_endpoint(params)
-            logging.info("Root endpoint test passed.")
+            # self.test_root_endpoint(params)
+            # logging.info("Root endpoint test passed.")
 
             # Ověření indexů
-            self.log_available_indices(params, save_to_csv="available_indices.csv")
-            logging.info("Elasticsearch indices verification completed.")
+            # self.log_available_indices(params, save_to_csv="available_indices.csv")
+            # logging.info("Elasticsearch indices verification completed.")
 
-            logging.info("Execution completed successfully.")
+            # logging.info("Execution completed successfully.")
 
         except Exception as e:
             logging.error(f"Unexpected error during component execution: {type(e).__name__} - {str(e)}")
