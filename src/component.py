@@ -1,16 +1,15 @@
 import json
 import logging
-import csv
-# from importlib.metadata import requires
+# import csv
+import time
 
 import requests
 from requests.auth import HTTPBasicAuth
 
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
-# from urllib3 import request
 
-from client.es_client import ElasticsearchClient
+# from client.es_client import ElasticsearchClient
 from client.ssh_utils import get_private_key
 from sshtunnel import SSHTunnelForwarder
 
@@ -49,200 +48,71 @@ class Component(ComponentBase):
     def __init__(self):
         super().__init__()
 
-    def connection_test(self, params):
-        # URL endpointu
-        url = "https://os.gopay.com:443/_search"
+    @staticmethod
+    def validate_params(params):
+        """Validates the configuration parameters."""
+        logging.info("Validating configuration parameters...")
+        if KEY_GROUP_AUTH not in params:
+            raise UserException(f"Missing {KEY_GROUP_AUTH} in parameters.")
+        auth_params = params[KEY_GROUP_AUTH]
+        if not auth_params.get(KEY_API_KEY_ID) or not auth_params.get(KEY_API_KEY):
+            raise UserException("Missing API Key ID or API Key in authentication parameters.")
+        if KEY_GROUP_DB not in params:
+            raise UserException(f"Missing {KEY_GROUP_DB} in parameters.")
+        db_params = params[KEY_GROUP_DB]
+        if not db_params.get(KEY_DB_HOSTNAME) or not db_params.get(KEY_DB_PORT):
+            raise UserException("Missing database hostname or port.")
+        logging.info("Validation successful.")
 
-        auth_params = params.get(KEY_GROUP_AUTH, {})
-        username = auth_params.get(KEY_API_KEY_ID)
-        password = auth_params.get(KEY_API_KEY)
-
-        # Odeslání GET požadavku s autentizací
-        try:
-            logging.info("Sending request...")
-            logging.info(f"URL: {url}")
-            logging.info(f"USERNAME: {username}")
-            response = requests.get(url, auth=HTTPBasicAuth(username, password), timeout=5)
-            logging.info(response)
-
-            # Výpis odpovědi
-            if response.status_code == 403:
-                logging.info("Access denied. Response:")
-            elif response.status_code == 200:
-                logging.info("Access successful. Response:")
-            else:
-                logging.info(f"Unexpected status code {response.status_code}. Response:")
-            logging.info(response.json())
-        except requests.exceptions.RequestException as e:
-            logging.info(f"Error occurred while connecting to the API: {e}")
-
-    def test_root_endpoint(self, params: dict):
-        """
-        Testuje připojení k root endpointu a konkrétnímu indexu v OpenSearch serveru.
-        """
-        try:
-            logging.info("Testing root endpoint of OpenSearch server...")
-            client = self.get_client(params)
-
-            # Test root endpoint
+    @staticmethod
+    def retry_request(url, auth, retries=5, initial_delay=1):
+        """Retries a request with exponential backoff."""
+        for attempt in range(1, retries + 1):
             try:
-                root_response = client.perform_request('GET', 'https://os.gopay.com:443/_search/')
-                logging.info(f"Root endpoint response: {json.dumps(root_response, indent=2)}")
-            except Exception as e:
-                logging.error(f"Error testing root endpoint: {e}")
-                raise UserException(f"Failed to fetch root endpoint response: {e}")
+                logging.info(f"Attempt {attempt} of {retries}: Sending request to {url}")
+                response = requests.get(url, auth=auth, timeout=5)
+                response.raise_for_status()
+                logging.info("Request successful!")
+                return response
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Attempt {attempt} failed: {e}")
+                if attempt == retries:
+                    raise UserException("Max retries reached, aborting.")
+                delay = initial_delay * (2 ** (attempt - 1))
+                logging.info(f"Retrying in {delay} seconds...")
+                time.sleep(delay)
 
-            # Test konkrétního indexu
-            index_name = params.get(KEY_INDEX_NAME, None)
-            if index_name:
-                logging.info(f"Testing specific index: {index_name}")
-                try:
-                    response = client.perform_request('GET', f'/{index_name}')
-                    logging.info(f"Index endpoint response: {json.dumps(response, indent=2)}")
-                except Exception as e:
-                    logging.error(f"Error testing index {index_name}: {e}")
-                    raise UserException(f"Failed to fetch index {index_name}: {e}")
-            else:
-                logging.warning("No index name provided in parameters. Skipping index test.")
-
-        except Exception as e:
-            logging.error(f"Error during root endpoint test: {e}")
-            raise UserException(f"Error during root endpoint test: {e}")
-
-    def log_available_indices(self, params: dict, save_to_csv: str = None):
-        """Logs the list of available indices."""
+    def test_connection_directly(self, params):
+        """Tests the connection directly via requests."""
+        logging.info("Testing connection directly via requests.")
         try:
-            logging.info("Initializing Elasticsearch client...")
-            client = self.get_client(params)
-
-            # Získání seznamu indexů přímo, bez ping()
-            try:
-                logging.info("Fetching list of available indices directly without ping...")
-                indices = client.indices.get_alias("*")
-                index_names = list(indices.keys())
-                if not index_names:
-                    logging.warning("No indices found in Elasticsearch.")
-                else:
-                    logging.info(f"Available indices: {index_names}")
-            except Exception as e:
-                logging.error(f"Error while fetching indices: {type(e).__name__} - {str(e)}")
-                raise UserException(f"Failed to fetch indices: {e}")
-
-            # Uložení seznamu indexů do CSV souboru (volitelné)
-            if save_to_csv:
-                logging.info(f"Saving indices to CSV file: {save_to_csv}")
-                with open(save_to_csv, mode='w', newline='', encoding='utf-8') as csv_file:
-                    writer = csv.writer(csv_file)
-                    writer.writerow(["Index Name"])
-                    for index_name in index_names:
-                        writer.writerow([index_name])
-                logging.info(f"Indices successfully saved to {save_to_csv}")
-
-        except Exception as e:
-            logging.error(f"Error while fetching indices: {type(e).__name__} - {str(e)}")
-            raise UserException(f"Failed to fetch indices: {e}")
-
-    def get_client(self, params: dict) -> ElasticsearchClient:
-        """
-        Creates and returns an Elasticsearch client with detailed logging.
-        """
-        try:
-            logging.info("Preparing to initialize Elasticsearch client...")
             auth_params = params.get(KEY_GROUP_AUTH, {})
-            db_params = params.get(KEY_GROUP_DB, {})
-            db_hostname = db_params.get(KEY_DB_HOSTNAME)
-            db_port = db_params.get(KEY_DB_PORT)
-            scheme = params.get(KEY_SCHEME, "http")
+            username = auth_params.get(KEY_API_KEY_ID)
+            password = auth_params.get(KEY_API_KEY)
+            url = "https://os.gopay.com:443/_search"
 
-            # Basic setup
-            auth_type = auth_params.get(KEY_AUTH_TYPE, "no_auth")
-            setup = {"host": db_hostname, "port": db_port, "scheme": scheme}
-            logging.info(f"Elasticsearch setup: {setup} with auth_type: {auth_type}")
-
-            # Log endpoint for visibility
-            endpoint = f"{scheme}://{db_hostname}:{db_port}"
-            logging.info(f"Using endpoint: {endpoint}")
-
-            # Create client based on auth_type
-            if auth_type == "basic":
-                username = auth_params.get(KEY_USERNAME)
-                password = auth_params.get(KEY_PASSWORD)
-                if not username or not password:
-                    raise UserException("Both username and password must be provided for basic auth.")
-                client = ElasticsearchClient([setup], scheme, http_auth=(username, password))
-                logging.info("Using basic authentication for Elasticsearch.")
-
-            elif auth_type == "api_key":
-                api_key_id = auth_params.get(KEY_API_KEY_ID)
-                api_key = auth_params.get(KEY_API_KEY)
-                if not api_key_id or not api_key:
-                    raise UserException("API Key ID and API Key must be provided for API Key authentication.")
-
-                logging.info(f"Using API Key authentication with ID: {api_key_id}")
-                client = ElasticsearchClient([setup], scheme, api_key=(api_key_id, api_key))
-                logging.info("API Key client created successfully.")
-
-            elif auth_type == "no_auth":
-                client = ElasticsearchClient([setup], scheme)
-                logging.info("Using no authentication for Elasticsearch.")
-
-            else:
-                raise UserException(f"Unsupported auth_type: {auth_type}")
-
-            # Test connection by fetching root endpoint
-            try:
-                logging.info("Testing Elasticsearch root endpoint...")
-                response = client.perform_request('GET', '/')
-                logging.info(f"HTTP Status Code: {response.status}")
-                logging.info(f"Root endpoint response: {json.dumps(response, indent=2)}")
-            except Exception as e:
-                logging.error(f"Failed to reach Elasticsearch root endpoint: {type(e).__name__} - {str(e)}")
-                raise UserException(f"Error connecting to Elasticsearch: {e}")
-
-            logging.info("Elasticsearch client initialized successfully.")
-            return client
-
+            logging.info(f"Testing direct connection to {url} with username {username}.")
+            auth = HTTPBasicAuth(username, password)
+            response = self.retry_request(url, auth)
+            logging.info(f"Response code: {response.status_code}")
+            logging.info(f"Response body: {response.json()}")
         except Exception as e:
-            logging.error(f"Error during Elasticsearch client initialization: {type(e).__name__} - {str(e)}")
-            raise UserException(f"Failed to initialize Elasticsearch client: {e}")
+            logging.error(f"Direct connection test failed: {e}")
+            raise UserException("Direct connection test failed.")
 
-    def run(self):
-        """Main execution logic for the component."""
-        self.validate_configuration_parameters(REQUIRED_PARAMETERS)
-        params = self.configuration.parameters
-
-        ssh_tunnel_started = False
+    def test_ssh_tunnel(self):
+        """Tests the SSH tunnel by sending a request through it."""
+        if not self.ssh_tunnel.is_active:
+            raise UserException("SSH tunnel is not active.")
+        local_host, local_port = self.ssh_tunnel.local_bind_address
+        logging.info(f"Testing SSH tunnel: Local bind address is {local_host}:{local_port}")
         try:
-            logging.info("Starting component execution...")
-
-            # Nastavení SSH tunelu, pokud je povoleno
-            if params.get(KEY_SSH, {}).get(KEY_USE_SSH, False):
-                logging.info("SSH tunneling is enabled. Setting up...")
-                self._create_and_start_ssh_tunnel(params)
-                ssh_tunnel_started = True
-
-            # Test Připojení
-            logging.info("Connection test (https://os.gopay.com/_search)...")
-            self.connection_test(params)
-
-            # Test root endpoint
-            self.test_root_endpoint(params)
-            logging.info("Root endpoint test passed.")
-
-            # Ověření indexů
-            # self.log_available_indices(params, save_to_csv="available_indices.csv")
-            # logging.info("Elasticsearch indices verification completed.")
-
-            # logging.info("Execution completed successfully.")
-
+            url = f"http://{local_host}:{local_port}/_search"
+            response = requests.get(url, timeout=5)
+            logging.info(f"SSH tunnel test response: {response.status_code} - {response.text}")
         except Exception as e:
-            logging.error(f"Unexpected error during component execution: {type(e).__name__} - {str(e)}")
-            raise
-        finally:
-            if ssh_tunnel_started and hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
-                logging.info("Stopping SSH tunnel...")
-                self.ssh_tunnel.stop()
-                logging.info("SSH tunnel stopped.")
+            logging.error(f"SSH tunnel test failed: {e}")
+            raise UserException("Failed to communicate through SSH tunnel.")
 
     def _create_and_start_ssh_tunnel(self, params):
         """Sets up and starts the SSH tunnel."""
@@ -286,6 +156,53 @@ class Component(ComponentBase):
         if "\n" not in rsa_key:
             return False, "RSA key does not contain newline characters."
         return True, ""
+
+    @staticmethod
+    def export_debug_info(params, response=None):
+        """Exports debug information to a file."""
+        with open("debug_info.json", "w") as debug_file:
+            debug_data = {
+                "params": params,
+                "response": response.text if response else None,
+                "status_code": response.status_code if response else None,
+            }
+            json.dump(debug_data, debug_file, indent=2)
+        logging.info("Debug info exported to debug_info.json.")
+
+
+
+    def run(self):
+        """Main execution logic for the component."""
+        self.validate_configuration_parameters(REQUIRED_PARAMETERS)
+        params = self.configuration.parameters
+        self.validate_params(params)
+
+        ssh_tunnel_started = False
+        try:
+            logging.info("Starting component execution...")
+
+            # Set up SSH tunnel if enabled
+            if params.get(KEY_SSH, {}).get(KEY_USE_SSH, False):
+                logging.info("SSH tunneling is enabled. Setting up...")
+                self._create_and_start_ssh_tunnel(params)
+                ssh_tunnel_started = True
+                self.test_ssh_tunnel()
+
+            # Test connection directly
+            self.test_connection_directly(params)
+
+            # Optional: Test root endpoint only if explicitly enabled
+            # if params.get("test_root_endpoint", False):
+            #     self.test_root_endpoint(params)
+
+        except Exception as e:
+            logging.error(f"Unexpected error during component execution: {type(e).__name__} - {str(e)}")
+            raise
+        finally:
+            if ssh_tunnel_started and hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
+                logging.info("Stopping SSH tunnel...")
+                self.ssh_tunnel.stop()
+                logging.info("SSH tunnel stopped.")
 
 
 # Main entrypoint
