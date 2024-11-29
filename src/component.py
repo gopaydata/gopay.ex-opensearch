@@ -14,8 +14,6 @@ from client.es_client import ElasticsearchClient
 from client.ssh_utils import get_private_key
 from sshtunnel import SSHTunnelForwarder
 
-from data.Test import connection_test
-
 # Configuration constants
 KEY_GROUP_DB = 'db'
 KEY_DB_HOSTNAME = 'hostname'
