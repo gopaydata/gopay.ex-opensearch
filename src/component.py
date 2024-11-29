@@ -62,8 +62,8 @@ class Component(ComponentBase):
             logging.info("Sending request...")
             logging.info(f"URL: {url}")
             logging.info(f"USERNAME: {username}")
-            response = requests.get(url, auth=HTTPBasicAuth(username, password))
-            logging.info((response))
+            response = requests.get(url, auth=HTTPBasicAuth(username, password), timeout=5)
+            logging.info(response)
 
             # Výpis odpovědi
             if response.status_code == 403:
