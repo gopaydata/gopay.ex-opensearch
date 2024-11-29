@@ -59,7 +59,11 @@ class Component(ComponentBase):
 
         # Odeslání GET požadavku s autentizací
         try:
+            logging.info("Sending request...")
+            logging.info(f"URL: {url}")
+            logging.info(f"USERNAME: {username}")
             response = requests.get(url, auth=HTTPBasicAuth(username, password))
+            logging.info((response))
 
             # Výpis odpovědi
             if response.status_code == 403:
@@ -82,7 +86,7 @@ class Component(ComponentBase):
 
             # Test root endpoint
             try:
-                root_response = client.perform_request('GET', '/')
+                root_response = client.perform_request('GET', 'https://os.gopay.com:443/_search/')
                 logging.info(f"Root endpoint response: {json.dumps(root_response, indent=2)}")
             except Exception as e:
                 logging.error(f"Error testing root endpoint: {e}")
@@ -222,8 +226,8 @@ class Component(ComponentBase):
             self.connection_test(params)
 
             # Test root endpoint
-            # self.test_root_endpoint(params)
-            # logging.info("Root endpoint test passed.")
+            self.test_root_endpoint(params)
+            logging.info("Root endpoint test passed.")
 
             # Ověření indexů
             # self.log_available_indices(params, save_to_csv="available_indices.csv")
