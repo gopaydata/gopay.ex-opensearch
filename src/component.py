@@ -1,14 +1,14 @@
 import json
 import logging
 import csv
-from importlib.metadata import requires
+# from importlib.metadata import requires
 
 import requests
 from requests.auth import HTTPBasicAuth
 
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
-from urllib3 import request
+# from urllib3 import request
 
 from client.es_client import ElasticsearchClient
 from client.ssh_utils import get_private_key
