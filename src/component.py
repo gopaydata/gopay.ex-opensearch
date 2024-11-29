@@ -54,8 +54,8 @@ class Component(ComponentBase):
         url = "https://os.gopay.com/_search"
 
         auth_params = params.get(KEY_GROUP_AUTH, {})
-        username=auth_params.get(KEY_API_KEY_ID)
-        password=auth_params.get(KEY_API_KEY)
+        username = auth_params.get(KEY_API_KEY_ID)
+        password = auth_params.get(KEY_API_KEY)
 
         # Odeslání GET požadavku s autentizací
         try:
