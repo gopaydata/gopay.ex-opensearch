@@ -89,7 +89,8 @@ class Component(ComponentBase):
             auth_params = params.get(KEY_GROUP_AUTH, {})
             username = auth_params.get(KEY_API_KEY_ID)
             password = auth_params.get(KEY_API_KEY)
-            url = "https://os.gopay.com:443/_search"
+            local_host, local_port = self.ssh_tunnel.local_bind_address
+            url = f"http://{local_host}:{local_port}/_search"
 
             logging.info(f"Testing direct connection to {url} with username {username}.")
             auth = HTTPBasicAuth(username, password)
@@ -184,7 +185,6 @@ class Component(ComponentBase):
                 logging.info("SSH tunneling is enabled. Setting up...")
                 self._create_and_start_ssh_tunnel(params)
                 ssh_tunnel_started = True
-                self.test_ssh_tunnel()
 
             # Test connection directly
             self.test_connection_directly(params)
