@@ -16,6 +16,8 @@ from sshtunnel import SSHTunnelForwarder
 from requests.auth import AuthBase
 from requests.models import Response
 
+import traceback
+
 # Configuration constants
 KEY_GROUP_DB = 'db'
 KEY_DB_HOSTNAME = 'hostname'
@@ -138,16 +140,28 @@ class Component(ComponentBase):
             auth_params = params.get(KEY_GROUP_AUTH, {})
             username = auth_params.get(KEY_API_KEY_ID)
             password = auth_params.get(KEY_API_KEY)
-            local_host, local_port = self.ssh_tunnel.local_bind_address
-            url = f"https://{local_host}:{local_port}/_search"
 
+            # Ověření SSH tunelu
+            if hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
+                local_host, local_port = self.ssh_tunnel.local_bind_address
+            else:
+                raise UserException("SSH tunnel is not active or not configured.")
+
+            # Sestavení URL
+            url = f"https://{local_host}:{local_port}/_search"
             logging.info(f"Testing direct connection to {url} with username {username}.")
+
+            # Autentizace
             auth = HTTPBasicAuth(username, password)
+
+            # Volání retry_request
             response = self.retry_request(url, auth)
             logging.info(f"Response code: {response.status_code}")
             logging.info(f"Response body: {response.json()}")
+
         except Exception as e:
             logging.error(f"Direct connection test failed: {e}")
+            logging.error(f"Exception details: {traceback.format_exc()}")
             raise UserException("Direct connection test failed.")
 
     def test_ssh_tunnel(self):
