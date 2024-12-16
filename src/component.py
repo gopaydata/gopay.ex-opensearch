@@ -113,8 +113,8 @@ class Component(ComponentBase):
 
             except requests.exceptions.HTTPError as http_err:
                 logging.error(
-                    f"Attempt {attempt}: HTTP error occurred: {http_err} - Status code: {getattr(response, 
-                            'status_code', 'unknown')}")
+                    f"Attempt {attempt}: HTTP error occurred: {http_err} - Status code: "
+                    f"{getattr(response, 'status_code', 'unknown')}")
 
             except requests.exceptions.RequestException as req_err:
                 logging.error(f"Attempt {attempt}: General request exception occurred: {req_err}")
