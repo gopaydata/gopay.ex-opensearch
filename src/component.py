@@ -13,6 +13,9 @@ from keboola.component.exceptions import UserException
 from client.ssh_utils import get_private_key
 from sshtunnel import SSHTunnelForwarder
 
+from requests.auth import AuthBase
+from requests.models import Response
+
 # Configuration constants
 KEY_GROUP_DB = 'db'
 KEY_DB_HOSTNAME = 'hostname'
@@ -42,6 +45,9 @@ LOCAL_BIND_ADDRESS = "127.0.0.1"
 REQUIRED_PARAMETERS = [KEY_GROUP_DB]
 RSA_HEADER = "-----BEGIN RSA PRIVATE KEY-----"
 
+class UserException(Exception):
+    """Vlastní výjimka pro signalizaci chyb v uživatelských požadavcích."""
+    pass
 
 class Component(ComponentBase):
 
@@ -65,22 +71,67 @@ class Component(ComponentBase):
         logging.info("Validation successful.")
 
     @staticmethod
-    def retry_request(url, auth, retries=5, initial_delay=1):
-        """Retries a request with exponential backoff."""
+    def retry_request(
+            url: str,
+            auth: AuthBase = None,
+            retries: int = 5,
+            initial_delay: float = 1,
+            timeout: float = 10
+    ) -> Response:
+        """
+        Retries an HTTP GET request with exponential backoff.
+
+        Args:
+            url (str): The target URL for the HTTP request.
+            auth (AuthBase): Authentication details (default: None).
+            retries (int): Maximum number of retry attempts (default: 5).
+            initial_delay (float): Initial delay in seconds for backoff (default: 1).
+            timeout (float): Timeout for the request in seconds (default: 10).
+
+        Returns:
+            Response: Successful HTTP response object.
+
+        Raises:
+            UserException: If all retries fail.
+        """
         for attempt in range(1, retries + 1):
             try:
                 logging.info(f"Attempt {attempt} of {retries}: Sending request to {url}")
-                response = requests.get(url, auth=auth, timeout=5)
-                response.raise_for_status()
-                logging.info("Request successful!")
-                return response
-            except requests.exceptions.RequestException as e:
-                logging.error(f"Attempt {attempt} failed: {e}")
-                if attempt == retries:
-                    raise UserException("Max retries reached, aborting.")
+                # Send the request
+                response = requests.get(url, auth=auth, timeout=timeout)
+                # Check if the response is valid
+                if response is not None:
+                    response.raise_for_status()
+                    logging.info(f"Request successful on attempt {attempt}")
+                    return response
+                else:
+                    logging.warning("Received no response (response is None)")
+                    raise requests.exceptions.RequestException("Response object is None.")
+
+            except requests.exceptions.Timeout:
+                logging.error(f"Attempt {attempt}: Request timed out after {timeout} seconds.")
+
+            except requests.exceptions.ConnectionError:
+                logging.error(f"Attempt {attempt}: Failed to connect to the server.")
+
+            except requests.exceptions.HTTPError as http_err:
+                logging.error(
+                    f"Attempt {attempt}: HTTP error occurred: {http_err} - Status code: {getattr(response, 'status_code', 'unknown')}")
+
+            except requests.exceptions.RequestException as req_err:
+                logging.error(f"Attempt {attempt}: General request exception occurred: {req_err}")
+
+            except Exception as e:
+                logging.error(f"Attempt {attempt}: An unexpected error occurred: {e}")
+
+            # Exponential backoff
+            if attempt < retries:
                 delay = initial_delay * (2 ** (attempt - 1))
-                logging.info(f"Retrying in {delay} seconds...")
+                logging.info(f"Retrying in {delay:.2f} seconds...")
                 time.sleep(delay)
+            else:
+                logging.error("Max retries reached, aborting.")
+                raise UserException("All retry attempts failed.")
 
     def test_connection_directly(self, params):
         """Tests the connection directly via requests."""
