@@ -45,9 +45,6 @@ LOCAL_BIND_ADDRESS = "127.0.0.1"
 REQUIRED_PARAMETERS = [KEY_GROUP_DB]
 RSA_HEADER = "-----BEGIN RSA PRIVATE KEY-----"
 
-class UserException(Exception):
-    """Vlastní výjimka pro signalizaci chyb v uživatelských požadavcích."""
-    pass
 
 class Component(ComponentBase):
 
@@ -116,7 +113,8 @@ class Component(ComponentBase):
 
             except requests.exceptions.HTTPError as http_err:
                 logging.error(
-                    f"Attempt {attempt}: HTTP error occurred: {http_err} - Status code: {getattr(response, 'status_code', 'unknown')}")
+                    f"Attempt {attempt}: HTTP error occurred: {http_err} - Status code: {getattr(response, 
+                            'status_code', 'unknown')}")
 
             except requests.exceptions.RequestException as req_err:
                 logging.error(f"Attempt {attempt}: General request exception occurred: {req_err}")
