@@ -90,7 +90,7 @@ class Component(ComponentBase):
             username = auth_params.get(KEY_API_KEY_ID)
             password = auth_params.get(KEY_API_KEY)
             local_host, local_port = self.ssh_tunnel.local_bind_address
-            url = f"http://{local_host}:{local_port}/_search"
+            url = f"https://{local_host}:{local_port}/_search"
 
             logging.info(f"Testing direct connection to {url} with username {username}.")
             auth = HTTPBasicAuth(username, password)
@@ -108,7 +108,7 @@ class Component(ComponentBase):
         local_host, local_port = self.ssh_tunnel.local_bind_address
         logging.info(f"Testing SSH tunnel: Local bind address is {local_host}:{local_port}")
         try:
-            url = f"http://{local_host}:{local_port}/_search"
+            url = f"https://{local_host}:{local_port}/_search"
             response = requests.get(url, timeout=5)
             logging.info(f"SSH tunnel test response: {response.status_code} - {response.text}")
         except Exception as e:
