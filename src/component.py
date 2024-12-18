@@ -148,7 +148,7 @@ class Component(ComponentBase):
                 raise UserException("SSH tunnel is not active or not configured.")
 
             # Sestavení URL
-            url = f"https://{local_host}:{local_port}/_search"
+            url = f"https://{local_host}:{local_port}/app-logs-prod/_search"
             logging.info(f"Testing direct connection to {url} with username {username}.")
 
             # Autentizace
