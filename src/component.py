@@ -171,8 +171,8 @@ class Component(ComponentBase):
         local_host, local_port = self.ssh_tunnel.local_bind_address
         logging.info(f"Testing SSH tunnel: Local bind address is {local_host}:{local_port}")
         try:
-            url = f"https://{local_host}:{local_port}/_search"
-            response = requests.get(url, timeout=5)
+            url = f"https://{local_host}:{local_port}/app-logs-prod/_search"
+            response = requests.post(url, timeout=5)
             logging.info(f"SSH tunnel test response: {response.status_code} - {response.text}")
         except Exception as e:
             logging.error(f"SSH tunnel test failed: {e}")
