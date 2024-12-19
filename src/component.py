@@ -141,6 +141,8 @@ class Component(ComponentBase):
         username = auth_params.get(KEY_API_KEY_ID)
         password = auth_params.get(KEY_API_KEY)
 
+        logging(F"Username: {username}, Password: {password}")
+
         # Ověření SSH tunelu
         if hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
             logging("SSH tunnel is active.")
@@ -288,7 +290,7 @@ class Component(ComponentBase):
                 ssh_tunnel_started = True
 
             # Test connection directly
-            self.test_opensearch(params=params)
+            self.test_opensearch(params)
             self.test_connection_directly(params)
 
             # Optional: Test root endpoint only if explicitly enabled
