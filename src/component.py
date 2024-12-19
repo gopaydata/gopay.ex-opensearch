@@ -151,7 +151,6 @@ class Component(ComponentBase):
             logging.exception("SSH tunnel is not active or not configured.")
             # raise UserException("SSH tunnel is not active or not configured.")
 
-
         # Sestavení URL
         url = f"https://{local_host}:{local_port}/app-logs-prod/_search"
 
