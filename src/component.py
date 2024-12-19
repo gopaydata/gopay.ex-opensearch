@@ -148,7 +148,9 @@ class Component(ComponentBase):
             logging.info("SSH tunnel is active.")
             local_host, local_port = self.ssh_tunnel.local_bind_address
         else:
-            raise UserException("SSH tunnel is not active or not configured.")
+            logging.exception("SSH tunnel is not active or not configured.")
+            # raise UserException("SSH tunnel is not active or not configured.")
+
 
         # Sestavení URL
         url = f"https://{local_host}:{local_port}/app-logs-prod/_search"
@@ -157,7 +159,7 @@ class Component(ComponentBase):
 
         # Požadavek typu HEAD
         response = requests.head(url, auth=HTTPBasicAuth(username, password))
-
+        logging.info(F"Response: {response.headers}")
         if response.status_code == 200:
             print("Connected successfully to the server.")
         elif response.status_code == 401:
@@ -279,6 +281,8 @@ class Component(ComponentBase):
         params = self.configuration.parameters
         self.validate_params(params)
 
+        # self.test_opensearch(params)
+
         ssh_tunnel_started = False
         try:
             logging.info("Starting component execution...")
@@ -291,7 +295,7 @@ class Component(ComponentBase):
 
             # Test connection directly
             self.test_opensearch(params)
-            self.test_connection_directly(params)
+            # self.test_connection_directly(params)
 
             # Optional: Test root endpoint only if explicitly enabled
             # if params.get("test_root_endpoint", False):
