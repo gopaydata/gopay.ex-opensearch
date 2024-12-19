@@ -136,10 +136,22 @@ class Component(ComponentBase):
     def test_opensearch(self, params):
         logging.info("Test_OpenSearch...")
         url = "https://os.gopay.com:443"
-        logging.info(F"Connecting to {url}")
+
         auth_params = params.get(KEY_GROUP_AUTH, {})
         username = auth_params.get(KEY_API_KEY_ID)
         password = auth_params.get(KEY_API_KEY)
+
+        # Ověření SSH tunelu
+        if hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
+            logging("SSH tunnel is active.")
+            local_host, local_port = self.ssh_tunnel.local_bind_address
+        else:
+            raise UserException("SSH tunnel is not active or not configured.")
+
+        # Sestavení URL
+        url = f"https://{local_host}:{local_port}/app-logs-prod/_search"
+
+        logging.info(F"Connecting to {url}")
 
         # Požadavek typu HEAD
         response = requests.head(url, auth=HTTPBasicAuth(username, password))
