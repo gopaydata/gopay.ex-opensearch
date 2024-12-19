@@ -12,3 +12,6 @@ __pycache__/
 
 # PyENV
 .python-version
+
+# Test files
+/src/component - test.py

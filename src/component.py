@@ -133,6 +133,32 @@ class Component(ComponentBase):
                 logging.error("Max retries reached, aborting.")
                 raise UserException("All retry attempts failed.")
 
+    def test_opensearch(self, params):
+        logging.info("Test_OpenSearch...")
+        url = "https://os.gopay.com:443"
+        logging.info(F"Connecting to {url}")
+        auth_params = params.get(KEY_GROUP_AUTH, {})
+        username = auth_params.get(KEY_API_KEY_ID)
+        password = auth_params.get(KEY_API_KEY)
+
+        # Požadavek typu HEAD
+        response = requests.head(url, auth=HTTPBasicAuth(username, password))
+
+        if response.status_code == 200:
+            print("Connected successfully to the server.")
+        elif response.status_code == 401:
+            print("Unauthorized: Check your username and password.")
+        else:
+            print(f"Failed to connect: {response.status_code}")
+
+        # Požadavek typu GET pro více informací
+        response = requests.get(url, auth=HTTPBasicAuth(username, password))
+
+        if response.status_code == 200:
+            print("Response:", response.json())
+        else:
+            print(f"Failed to connect: {response.status_code}")
+
     def test_connection_directly(self, params):
         """Tests the connection directly via requests."""
         logging.info("Testing connection directly via requests.")
@@ -250,6 +276,7 @@ class Component(ComponentBase):
                 ssh_tunnel_started = True
 
             # Test connection directly
+            self.test_opensearch(params=params)
             self.test_connection_directly(params)
 
             # Optional: Test root endpoint only if explicitly enabled
