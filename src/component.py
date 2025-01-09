@@ -69,142 +69,6 @@ class Component(ComponentBase):
             raise UserException("Missing database hostname or port.")
         logging.info("Validation successful.")
 
-    @staticmethod
-    def retry_request(
-            url: str,
-            auth: AuthBase = None,
-            retries: int = 5,
-            initial_delay: float = 1,
-            timeout: float = 10
-    ) -> Response:
-        """
-        Retries an HTTP GET request with exponential backoff.
-
-        Args:
-            url (str): The target URL for the HTTP request.
-            auth (AuthBase): Authentication details (default: None).
-            retries (int): Maximum number of retry attempts (default: 5).
-            initial_delay (float): Initial delay in seconds for backoff (default: 1).
-            timeout (float): Timeout for the request in seconds (default: 10).
-
-        Returns:
-            Response: Successful HTTP response object.
-
-        Raises:
-            UserException: If all retries fail.
-        """
-        for attempt in range(1, retries + 1):
-            try:
-                logging.info(f"Attempt {attempt} of {retries}: Sending request to {url}")
-                # Send the request
-                response = requests.get(url, auth=auth, timeout=timeout)
-                # Check if the response is valid
-                if response is not None:
-                    response.raise_for_status()
-                    logging.info(f"Request successful on attempt {attempt}")
-                    return response
-                else:
-                    logging.warning("Received no response (response is None)")
-                    raise requests.exceptions.RequestException("Response object is None.")
-
-            except requests.exceptions.Timeout:
-                logging.error(f"Attempt {attempt}: Request timed out after {timeout} seconds.")
-
-            except requests.exceptions.ConnectionError:
-                logging.error(f"Attempt {attempt}: Failed to connect to the server.")
-
-            except requests.exceptions.HTTPError as http_err:
-                logging.error(
-                    f"Attempt {attempt}: HTTP error occurred: {http_err} - Status code: "
-                    f"{getattr(response, 'status_code', 'unknown')}")
-
-            except requests.exceptions.RequestException as req_err:
-                logging.error(f"Attempt {attempt}: General request exception occurred: {req_err}")
-
-            except Exception as e:
-                logging.error(f"Attempt {attempt}: An unexpected error occurred: {e}")
-
-            # Exponential backoff
-            if attempt < retries:
-                delay = initial_delay * (2 ** (attempt - 1))
-                logging.info(f"Retrying in {delay:.2f} seconds...")
-                time.sleep(delay)
-            else:
-                logging.error("Max retries reached, aborting.")
-                raise UserException("All retry attempts failed.")
-
-    def test_opensearch(self, params):
-        logging.info("Test_OpenSearch...")
-        url = "https://os.gopay.com:443"
-
-        auth_params = params.get(KEY_GROUP_AUTH, {})
-        username = auth_params.get(KEY_API_KEY_ID)
-        password = auth_params.get(KEY_API_KEY)
-
-        logging.info(F"Username: {username}, Password: {password}")
-
-        # Ověření SSH tunelu
-        if hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
-            logging.info("SSH tunnel is active.")
-            local_host, local_port = self.ssh_tunnel.local_bind_address
-        else:
-            logging.exception("SSH tunnel is not active or not configured.")
-            # raise UserException("SSH tunnel is not active or not configured.")
-
-        # Sestavení URL
-        url = f"https://{local_host}:{local_port}/app-logs-prod/_search"
-
-        logging.info(F"Connecting to {url}")
-
-        # Požadavek typu HEAD
-        response = requests.head(url, auth=HTTPBasicAuth(username, password))
-        logging.info(F"Response: {response.headers}")
-        if response.status_code == 200:
-            print("Connected successfully to the server.")
-        elif response.status_code == 401:
-            print("Unauthorized: Check your username and password.")
-        else:
-            print(f"Failed to connect: {response.status_code}")
-
-        # Požadavek typu GET pro více informací
-        response = requests.get(url, auth=HTTPBasicAuth(username, password))
-
-        if response.status_code == 200:
-            print("Response:", response.json())
-        else:
-            print(f"Failed to connect: {response.status_code}")
-
-    def test_connection_directly(self, params):
-        """Tests the connection directly via requests."""
-        logging.info("Testing connection directly via requests.")
-        try:
-            auth_params = params.get(KEY_GROUP_AUTH, {})
-            username = auth_params.get(KEY_API_KEY_ID)
-            password = auth_params.get(KEY_API_KEY)
-
-            # Ověření SSH tunelu
-            if hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
-                local_host, local_port = self.ssh_tunnel.local_bind_address
-            else:
-                raise UserException("SSH tunnel is not active or not configured.")
-
-            # Sestavení URL
-            url = f"https://{local_host}:{local_port}/app-logs-prod/_search"
-            logging.info(f"Testing direct connection to {url} with username {username}.")
-
-            # Autentizace
-            auth = HTTPBasicAuth(username, password)
-
-            # Volání retry_request
-            response = self.retry_request(url, auth)
-            logging.info(f"Response code: {response.status_code}")
-            logging.info(f"Response body: {response.json()}")
-
-        except Exception as e:
-            logging.error(f"Direct connection test failed: {e}")
-            logging.error(f"Exception details: {traceback.format_exc()}")
-            raise UserException("Direct connection test failed.")
-
     def test_health(self, params):
 
         logging.info("OS health testing...")
@@ -250,31 +114,23 @@ class Component(ComponentBase):
             csv_file = self.create_out_table_definition("cluster_health.csv")
             out_table_path = csv_file.full_path
 
-            # Uložení JSON dat jako CSV
-            with open(out_table_path, mode='w', newline='', encoding='utf-8') as file:
-                writer = csv.writer(file)
-                # Zápis hlaviček (klíčů JSON odpovědi)
-                writer.writerow(response_data.keys())
-                # Zápis hodnot (hodnot JSON odpovědi)
-                writer.writerow(response_data.values())
+            logging.info(out_table_path)
 
-            print(f"Data byla uložena do souboru {out_table_path}.")
+            try:
+                # Uložení JSON dat jako CSV
+                with open(out_table_path, mode='w', newline='', encoding='utf-8') as file:
+                    writer = csv.writer(file)
+                    # Zápis hlaviček (klíčů JSON odpovědi)
+                    writer.writerow(response_data.keys())
+                    # Zápis hodnot (hodnot JSON odpovědi)
+                    writer.writerow(response_data.values())
+
+                print(f"Data byla uložena do souboru {out_table_path}.")
+            finally:
+                logging.info("Po pokusu o uložení souboru.")
         else:
             print(f"Failed to connect: {response.status_code}")
 
-    def test_ssh_tunnel(self):
-        """Tests the SSH tunnel by sending a request through it."""
-        if not self.ssh_tunnel.is_active:
-            raise UserException("SSH tunnel is not active.")
-        local_host, local_port = self.ssh_tunnel.local_bind_address
-        logging.info(f"Testing SSH tunnel: Local bind address is {local_host}:{local_port}")
-        try:
-            url = f"https://{local_host}:{local_port}/_cluster/health"
-            response = requests.post(url, timeout=5)
-            logging.info(f"SSH tunnel test response: {response.status_code} - {response.text}")
-        except Exception as e:
-            logging.error(f"SSH tunnel test failed: {e}")
-            raise UserException("Failed to communicate through SSH tunnel.")
 
     def _create_and_start_ssh_tunnel(self, params):
         """Sets up and starts the SSH tunnel."""
@@ -319,25 +175,11 @@ class Component(ComponentBase):
             return False, "RSA key does not contain newline characters."
         return True, ""
 
-    @staticmethod
-    def export_debug_info(params, response=None):
-        """Exports debug information to a file."""
-        with open("debug_info.json", "w") as debug_file:
-            debug_data = {
-                "params": params,
-                "response": response.text if response else None,
-                "status_code": response.status_code if response else None,
-            }
-            json.dump(debug_data, debug_file, indent=2)
-        logging.info("Debug info exported to debug_info.json.")
-
     def run(self):
         """Main execution logic for the component."""
         self.validate_configuration_parameters(REQUIRED_PARAMETERS)
         params = self.configuration.parameters
         self.validate_params(params)
-
-        # self.test_opensearch(params)
 
         ssh_tunnel_started = False
         try:
@@ -349,14 +191,11 @@ class Component(ComponentBase):
                 self._create_and_start_ssh_tunnel(params)
                 ssh_tunnel_started = True
 
-            # Test connection directly
-            self.test_health(params)
-            # self.test_opensearch(params)
-            # self.test_connection_directly(params)
-
-            # Optional: Test root endpoint only if explicitly enabled
-            # if params.get("test_root_endpoint", False):
-            #     self.test_root_endpoint(params)
+            # Testing
+            try:
+                self.test_health(params)
+            except:
+                logging.error("Test neproběhl.")
 
         except Exception as e:
             logging.error(f"Unexpected error during component execution: {type(e).__name__} - {str(e)}")
