@@ -224,21 +224,22 @@ class Component(ComponentBase):
         username = auth_params.get(KEY_API_KEY_ID)
         password = auth_params.get(KEY_API_KEY)
 
-        response = requests.get(url, auth=HTTPBasicAuth(username, password))
-        print(response)
+        response = requests.get(url, auth=HTTPBasicAuth(username, password), timeout=10)
+        logging.info("Response code:" + str(response.status_code))
+
         if response.status_code == 200:
-            print("Connected successfully to the server.")
+            logging.info("Connected successfully to the server.")
         elif response.status_code == 401:
-            print("Unauthorized: Check your username and password.")
+            logging.info("Unauthorized: Check your username and password.")
         else:
-            print(f"Failed to connect: {response.status_code}")
+            logging.info(f"Failed to connect: {response.status_code}")
 
         # Požadavek typu GET pro více informací
         logging.info("GET request, url: " + url)
         response = requests.get(url, auth=HTTPBasicAuth(username, password))
 
         if response.status_code == 200:
-            print("Response:", response.json())
+            logging.info("Response: " + str(response.json()))
 
             # Zpracování odpovědi jako CSV
             response_data = response.json()
@@ -264,7 +265,7 @@ class Component(ComponentBase):
         local_host, local_port = self.ssh_tunnel.local_bind_address
         logging.info(f"Testing SSH tunnel: Local bind address is {local_host}:{local_port}")
         try:
-            url = f"https://{local_host}:{local_port}/app-logs-prod/_search"
+            url = f"https://{local_host}:{local_port}/_cluster/health"
             response = requests.post(url, timeout=5)
             logging.info(f"SSH tunnel test response: {response.status_code} - {response.text}")
         except Exception as e:
