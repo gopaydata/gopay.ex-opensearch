@@ -209,7 +209,16 @@ class Component(ComponentBase):
 
         logging.info("OS health testing...")
 
-        url = "https://os.gopay.com:443/_cluster/health"
+        if hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
+            logging.info("OK - Tunnel is active.")
+            local_host, local_port = self.ssh_tunnel.local_bind_address
+        else:
+            local_host = 'os.gopay.com'
+            local_port = '443'
+            logging.warning("SSH tunnel is not active or not configured.")
+
+        # Sestavení URL
+        url = f"https://{local_host}:{local_port}/_cluster/health"
 
         auth_params = params.get(KEY_GROUP_AUTH, {})
         username = auth_params.get(KEY_API_KEY_ID)
@@ -225,6 +234,7 @@ class Component(ComponentBase):
             print(f"Failed to connect: {response.status_code}")
 
         # Požadavek typu GET pro více informací
+        logging.info("GET request, url: " + url)
         response = requests.get(url, auth=HTTPBasicAuth(username, password))
 
         if response.status_code == 200:
