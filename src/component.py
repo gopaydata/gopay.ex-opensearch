@@ -1,6 +1,6 @@
 import json
 import logging
-# import csv
+import csv
 import time
 
 import requests
@@ -205,6 +205,48 @@ class Component(ComponentBase):
             logging.error(f"Exception details: {traceback.format_exc()}")
             raise UserException("Direct connection test failed.")
 
+    def test_health(self, params):
+
+        logging.info("OS health testing...")
+
+        url = "https://os.gopay.com:443/_cluster/health"
+
+        auth_params = params.get(KEY_GROUP_AUTH, {})
+        username = auth_params.get(KEY_API_KEY_ID)
+        password = auth_params.get(KEY_API_KEY)
+
+        response = requests.get(url, auth=HTTPBasicAuth(username, password))
+        print(response)
+        if response.status_code == 200:
+            print("Connected successfully to the server.")
+        elif response.status_code == 401:
+            print("Unauthorized: Check your username and password.")
+        else:
+            print(f"Failed to connect: {response.status_code}")
+
+        # Požadavek typu GET pro více informací
+        response = requests.get(url, auth=HTTPBasicAuth(username, password))
+
+        if response.status_code == 200:
+            print("Response:", response.json())
+
+            # Zpracování odpovědi jako CSV
+            response_data = response.json()
+            csv_file = self.create_out_table_definition("cluster_health.csv")
+            out_table_path = csv_file.full_path
+
+            # Uložení JSON dat jako CSV
+            with open(out_table_path, mode='w', newline='', encoding='utf-8') as file:
+                writer = csv.writer(file)
+                # Zápis hlaviček (klíčů JSON odpovědi)
+                writer.writerow(response_data.keys())
+                # Zápis hodnot (hodnot JSON odpovědi)
+                writer.writerow(response_data.values())
+
+            print(f"Data byla uložena do souboru {out_table_path}.")
+        else:
+            print(f"Failed to connect: {response.status_code}")
+
     def test_ssh_tunnel(self):
         """Tests the SSH tunnel by sending a request through it."""
         if not self.ssh_tunnel.is_active:
@@ -293,7 +335,8 @@ class Component(ComponentBase):
                 ssh_tunnel_started = True
 
             # Test connection directly
-            self.test_opensearch(params)
+            self.test_health(params)
+            # self.test_opensearch(params)
             # self.test_connection_directly(params)
 
             # Optional: Test root endpoint only if explicitly enabled
