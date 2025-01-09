@@ -1,7 +1,7 @@
-import json
+# import json
 import logging
 import csv
-import time
+# import time
 
 import requests
 from requests.auth import HTTPBasicAuth
@@ -13,10 +13,10 @@ from keboola.component.exceptions import UserException
 from client.ssh_utils import get_private_key
 from sshtunnel import SSHTunnelForwarder
 
-from requests.auth import AuthBase
-from requests.models import Response
+# from requests.auth import AuthBase
+# from requests.models import Response
 
-import traceback
+# import traceback
 
 # Configuration constants
 KEY_GROUP_DB = 'db'
@@ -131,7 +131,6 @@ class Component(ComponentBase):
         else:
             print(f"Failed to connect: {response.status_code}")
 
-
     def _create_and_start_ssh_tunnel(self, params):
         """Sets up and starts the SSH tunnel."""
         try:
@@ -191,11 +190,13 @@ class Component(ComponentBase):
                 self._create_and_start_ssh_tunnel(params)
                 ssh_tunnel_started = True
 
-            # Testing
+            # Test
             try:
                 self.test_health(params)
-            except:
-                logging.error("Test neproběhl.")
+            except Exception as e:
+                logging.error(f"Test selhal: {e}")
+            finally:
+                logging.info("Konec testu.")
 
         except Exception as e:
             logging.error(f"Unexpected error during component execution: {type(e).__name__} - {str(e)}")
