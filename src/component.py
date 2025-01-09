@@ -211,6 +211,7 @@ class Component(ComponentBase):
 
         if hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
             logging.info("OK - Tunnel is active.")
+            logging.info(self.ssh_tunnel.is_active)
             local_host, local_port = self.ssh_tunnel.local_bind_address
         else:
             local_host = 'os.gopay.com'
@@ -224,7 +225,10 @@ class Component(ComponentBase):
         username = auth_params.get(KEY_API_KEY_ID)
         password = auth_params.get(KEY_API_KEY)
 
-        response = requests.get(url, auth=HTTPBasicAuth(username, password), timeout=10)
+        logging.info("Connecting to " + url)
+        logging.info("Username: " + username)
+
+        response = requests.get(url, auth=HTTPBasicAuth(username, password), timeout=100)
         logging.info("Response code:" + str(response.status_code))
 
         if response.status_code == 200:
