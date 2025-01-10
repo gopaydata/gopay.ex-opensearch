@@ -1,4 +1,5 @@
 # import json
+import datetime
 import logging
 import csv
 # import time
@@ -79,7 +80,7 @@ class Component(ComponentBase):
         if hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
             logging.info("OK - Tunnel is active.")
             logging.info(self.ssh_tunnel.is_active)
-            # local_host, local_port = self.ssh_tunnel.local_bind_address
+            local_host, local_port = self.ssh_tunnel.local_bind_address
         else:
             logging.warning("SSH tunnel is not active or not configured.")
 
@@ -128,6 +129,8 @@ class Component(ComponentBase):
             logging.info("Response: " + str(response_data))
         else:
             logging.warning(f"Failed to connect: {response.status_code}")
+
+        response_data['date'] = datetime.datetime.now()
 
         # Uložení dat (platných nebo prázdných) jako CSV
         try:
