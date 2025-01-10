@@ -70,9 +70,9 @@ class Component(ComponentBase):
         logging.info("Validation successful.")
 
     def test_health(self, params):
-
         logging.info("OS health testing...")
 
+        # Kontrola stavu SSH tunelu
         if hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
             logging.info("OK - Tunnel is active.")
             logging.info(self.ssh_tunnel.is_active)
@@ -95,41 +95,53 @@ class Component(ComponentBase):
         response = requests.get(url, auth=HTTPBasicAuth(username, password), timeout=100)
         logging.info("Response code:" + str(response.status_code))
 
+        # Cesta k výstupnímu CSV souboru
+        csv_file = self.create_out_table_definition("cluster_health.csv")
+        out_table_path = csv_file.full_path
+
+        # Pokud je odpověď 200, zpracuje se jako JSON a uloží
         if response.status_code == 200:
             logging.info("Connected successfully to the server.")
-        elif response.status_code == 401:
-            logging.info("Unauthorized: Check your username and password.")
-        else:
-            logging.info(f"Failed to connect: {response.status_code}")
-
-        # Požadavek typu GET pro více informací
-        logging.info("GET request, url: " + url)
-        response = requests.get(url, auth=HTTPBasicAuth(username, password))
-
-        if response.status_code == 200:
-            logging.info("Response: " + str(response.json()))
-
-            # Zpracování odpovědi jako CSV
+            logging.info("GET request, url: " + url)
             response_data = response.json()
-            csv_file = self.create_out_table_definition("cluster_health.csv")
-            out_table_path = csv_file.full_path
-
-            logging.info(out_table_path)
-
-            try:
-                # Uložení JSON dat jako CSV
-                with open(out_table_path, mode='w', newline='', encoding='utf-8') as file:
-                    writer = csv.writer(file)
-                    # Zápis hlaviček (klíčů JSON odpovědi)
-                    writer.writerow(response_data.keys())
-                    # Zápis hodnot (hodnot JSON odpovědi)
-                    writer.writerow(response_data.values())
-
-                print(f"Data byla uložena do souboru {out_table_path}.")
-            finally:
-                logging.info("Po pokusu o uložení souboru.")
+            logging.info("Response: " + str(response_data))
         else:
-            print(f"Failed to connect: {response.status_code}")
+            logging.warning(f"Failed to connect: {response.status_code}")
+            # Pokud není odpověď 200, vytvoří prázdná data
+            response_data = {
+                "cluster_name": "",
+                "status": "",
+                "timed_out": "",
+                "number_of_nodes": "",
+                "number_of_data_nodes": "",
+                "discovered_master": "",
+                "discovered_cluster_manager": "",
+                "active_primary_shards": "",
+                "active_shards": "",
+                "relocating_shards": "",
+                "initializing_shards": "",
+                "unassigned_shards": "",
+                "delayed_unassigned_shards": "",
+                "number_of_pending_tasks": "",
+                "number_of_in_flight_fetch": "",
+                "task_max_waiting_in_queue_millis": "",
+                "active_shards_percent_as_number": "",
+            }
+
+        # Uložení dat (platných nebo prázdných) jako CSV
+        try:
+            with open(out_table_path, mode='w', newline='', encoding='utf-8') as file:
+                writer = csv.writer(file)
+                # Zápis hlaviček (klíčů JSON odpovědi)
+                writer.writerow(response_data.keys())
+                # Zápis hodnot (hodnot JSON odpovědi nebo prázdné hodnoty)
+                writer.writerow(response_data.values())
+
+            logging.info(f"Data byla uložena do souboru {out_table_path}.")
+        except Exception as e:
+            logging.error(f"Chyba při ukládání do souboru: {e}")
+        finally:
+            logging.info("Po pokusu o uložení souboru.")
 
     def _create_and_start_ssh_tunnel(self, params):
         """Sets up and starts the SSH tunnel."""
