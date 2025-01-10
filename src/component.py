@@ -82,6 +82,26 @@ class Component(ComponentBase):
             local_port = '443'
             logging.warning("SSH tunnel is not active or not configured.")
 
+        response_data = {
+            "cluster_name": "",
+            "status": "",
+            "timed_out": "",
+            "number_of_nodes": "",
+            "number_of_data_nodes": "",
+            "discovered_master": "",
+            "discovered_cluster_manager": "",
+            "active_primary_shards": "",
+            "active_shards": "",
+            "relocating_shards": "",
+            "initializing_shards": "",
+            "unassigned_shards": "",
+            "delayed_unassigned_shards": "",
+            "number_of_pending_tasks": "",
+            "number_of_in_flight_fetch": "",
+            "task_max_waiting_in_queue_millis": "",
+            "active_shards_percent_as_number": "",
+        }
+
         # Sestavení URL
         url = f"https://{local_host}:{local_port}/_cluster/health"
 
@@ -92,7 +112,7 @@ class Component(ComponentBase):
         logging.info("Connecting to " + url)
         logging.info("Username: " + username)
 
-        response = requests.get(url, auth=HTTPBasicAuth(username, password), timeout=100)
+        response = requests.get(url, auth=HTTPBasicAuth(username, password), timeout=100, verify=False)
         logging.info("Response code:" + str(response.status_code))
 
         # Cesta k výstupnímu CSV souboru
@@ -107,26 +127,6 @@ class Component(ComponentBase):
             logging.info("Response: " + str(response_data))
         else:
             logging.warning(f"Failed to connect: {response.status_code}")
-            # Pokud není odpověď 200, vytvoří prázdná data
-            response_data = {
-                "cluster_name": "",
-                "status": "",
-                "timed_out": "",
-                "number_of_nodes": "",
-                "number_of_data_nodes": "",
-                "discovered_master": "",
-                "discovered_cluster_manager": "",
-                "active_primary_shards": "",
-                "active_shards": "",
-                "relocating_shards": "",
-                "initializing_shards": "",
-                "unassigned_shards": "",
-                "delayed_unassigned_shards": "",
-                "number_of_pending_tasks": "",
-                "number_of_in_flight_fetch": "",
-                "task_max_waiting_in_queue_millis": "",
-                "active_shards_percent_as_number": "",
-            }
 
         # Uložení dat (platných nebo prázdných) jako CSV
         try:
