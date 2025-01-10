@@ -72,14 +72,15 @@ class Component(ComponentBase):
     def test_health(self, params):
         logging.info("OS health testing...")
 
+        local_host = 'os.gopay.com'
+        local_port = '443'
+
         # Kontrola stavu SSH tunelu
         if hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
             logging.info("OK - Tunnel is active.")
             logging.info(self.ssh_tunnel.is_active)
-            local_host, local_port = self.ssh_tunnel.local_bind_address
+            # local_host, local_port = self.ssh_tunnel.local_bind_address
         else:
-            local_host = 'os.gopay.com'
-            local_port = '443'
             logging.warning("SSH tunnel is not active or not configured.")
 
         response_data = {
