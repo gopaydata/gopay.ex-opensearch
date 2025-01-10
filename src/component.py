@@ -314,26 +314,39 @@ class Component(ComponentBase):
         with open(full_path, "w") as json_file:
             json.dump(results, json_file, indent=4)
 
-    def _create_and_start_ssh_tunnel(self, params) -> None:
-        ssh_params = params.get(KEY_SSH)
-        ssh_username = ssh_params.get(KEY_SSH_USERNAME)
-        keys = ssh_params.get(KEY_SSH_KEYS)
-        private_key = keys.get(KEY_SSH_PRIVATE_KEY)
-        ssh_tunnel_host = ssh_params.get(KEY_SSH_TUNNEL_HOST)
-        ssh_tunnel_port = ssh_params.get(KEY_SSH_TUNNEL_PORT, 22)
-        db_params = params.get(KEY_GROUP_DB)
-        db_hostname = db_params.get(KEY_DB_HOSTNAME)
-        db_port = db_params.get(KEY_DB_PORT)
-        self._create_ssh_tunnel(ssh_username, private_key, ssh_tunnel_host, ssh_tunnel_port,
-                                db_hostname, db_port)
-
+    def _create_and_start_ssh_tunnel(self, params):
+        """Sets up and starts the SSH tunnel."""
         try:
-            self.ssh_server.start()
-        except BaseSSHTunnelForwarderError as e:
-            raise UserException(
-                "Failed to establish SSH connection. Recheck all SSH configuration parameters") from e
+            logging.info("Validating SSH parameters...")
+            ssh_params = params.get(KEY_SSH)
+            ssh_username = ssh_params.get(KEY_SSH_USERNAME)
+            private_key = ssh_params.get(KEY_SSH_KEYS, {}).get(KEY_SSH_PRIVATE_KEY)
+            ssh_tunnel_host = ssh_params.get(KEY_SSH_TUNNEL_HOST)
+            ssh_tunnel_port = ssh_params.get(KEY_SSH_TUNNEL_PORT, 22)
+            db_params = params.get(KEY_GROUP_DB)
+            db_hostname = db_params.get(KEY_DB_HOSTNAME)
+            db_port = int(db_params.get(KEY_DB_PORT))
 
-        logging.info("SSH tunnel is enabled.")
+            # Validate private key
+            is_valid, error_message = self.is_valid_rsa(private_key)
+            if not is_valid:
+                logging.error(f"Invalid RSA key: {error_message}")
+                raise UserException(f"Invalid RSA key: {error_message}")
+
+            logging.info(f"Setting up SSH tunnel to {ssh_tunnel_host}:{ssh_tunnel_port}...")
+            self.ssh_tunnel = SSHTunnelForwarder(
+                ssh_address_or_host=(ssh_tunnel_host, ssh_tunnel_port),
+                ssh_username=ssh_username,
+                ssh_pkey=get_private_key(private_key, None),
+                remote_bind_address=(db_hostname, db_port),
+                local_bind_address=(LOCAL_BIND_ADDRESS, 0)  # Auto-assigned local port
+            )
+            self.ssh_tunnel.start()
+            logging.info(f"SSH tunnel established: {self.ssh_tunnel.local_bind_address} -> {db_hostname}:{db_port}")
+
+        except Exception as e:
+            logging.error(f"Failed to start SSH tunnel: {e}")
+            raise UserException(f"Failed to establish SSH tunnel: {e}")
 
         # Test
         try:
