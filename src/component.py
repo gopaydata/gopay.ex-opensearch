@@ -6,6 +6,12 @@ import shutil
 import dateparser
 import pytz
 
+import requests
+from requests.auth import HTTPBasicAuth
+
+import csv
+import datetime
+
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
 from keboola.csvwriter import ElasticDictWriter
