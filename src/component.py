@@ -19,7 +19,7 @@ from keboola.csvwriter import ElasticDictWriter
 from client.es_client import ElasticsearchClient
 from legacy_client.legacy_es_client import LegacyClient
 from client.ssh_utils import SomeSSHException, get_private_key
-from sshtunnel import SSHTunnelForwarder, BaseSSHTunnelForwarderError
+from sshtunnel import SSHTunnelForwarder
 
 # configuration variables
 KEY_GROUP_DB = 'db'
