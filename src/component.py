@@ -178,68 +178,68 @@ class Component(ComponentBase):
         else:
             logging.warning("SSH tunnel is not active or not configured.")
 
-            # Sestavení URL
-            url = f"https://{local_host}:{local_port}/app-logs-prod/_search"
-            logging.info(f"URL: {url}")
-            payment_ids = ["8998403571", "8997989023", "1122334455"]
+        # Sestavení URL
+        url = f"https://{local_host}:{local_port}/app-logs-prod/_search"
+        logging.info(f"URL: {url}")
+        payment_ids = ["8998403571", "8997989023", "1122334455"]
 
-            auth_params = params.get(KEY_GROUP_AUTH, {})
-            username = auth_params.get(KEY_API_KEY_ID)
-            password = auth_params.get(KEY_API_KEY)
+        auth_params = params.get(KEY_GROUP_AUTH, {})
+        username = auth_params.get(KEY_API_KEY_ID)
+        password = auth_params.get(KEY_API_KEY)
 
-            logging.info("Connecting to " + url)
-            logging.info("Username: " + username)
+        logging.info("Connecting to " + url)
+        logging.info("Username: " + username)
 
-            query = {
-                "query": {
-                    "bool": {
-                        "should": [{"query_string": {"query": pid}} for pid in payment_ids]
-                    }
-                },
-                "size": 1000  # Zvýšení limitu počtu výsledků
-            }
+        query = {
+            "query": {
+                "bool": {
+                    "should": [{"query_string": {"query": pid}} for pid in payment_ids]
+                }
+            },
+            "size": 1000  # Zvýšení limitu počtu výsledků
+        }
 
-            # Odeslání požadavku s Basic Auth
-            response = requests.post(url, auth=HTTPBasicAuth(username, password), json=query, verify=False)
+        # Odeslání požadavku s Basic Auth
+        response = requests.post(url, auth=HTTPBasicAuth(username, password), json=query, verify=False)
 
-            if response.status_code == 200:
-                # Parsování JSON odpovědi
-                data = response.json()
-                hits = data.get("hits", {}).get("hits", [])
+        if response.status_code == 200:
+            # Parsování JSON odpovědi
+            data = response.json()
+            hits = data.get("hits", {}).get("hits", [])
 
-                if hits:
-                    # Převod záznamů do DataFrame
-                    df = pd.DataFrame(hits)
+            if hits:
+                # Převod záznamů do DataFrame
+                df = pd.DataFrame(hits)
 
-                    # Bezpečné načtení JSON dat z '_source'
-                    def parse_json(source):
-                        try:
-                            return json.loads(source) if isinstance(source, str) else source
-                        except json.JSONDecodeError:
-                            return {}
+                # Bezpečné načtení JSON dat z '_source'
+                def parse_json(source):
+                    try:
+                        return json.loads(source) if isinstance(source, str) else source
+                    except json.JSONDecodeError:
+                        return {}
 
-                    # Rozbalení JSON sloupce '_source'
-                    df['_source'] = df['_source'].apply(parse_json)
-                    source_expanded = pd.json_normalize(df['_source'])
+                # Rozbalení JSON sloupce '_source'
+                df['_source'] = df['_source'].apply(parse_json)
+                source_expanded = pd.json_normalize(df['_source'])
 
-                    # Spojení s původními sloupci (_id a _index)
-                    expanded_data = pd.concat([df[['_id', '_index']], source_expanded], axis=1)
+                # Spojení s původními sloupci (_id a _index)
+                expanded_data = pd.concat([df[['_id', '_index']], source_expanded], axis=1)
 
-                    # Cesta k výstupnímu CSV souboru
-                    csv_file = self.create_out_table_definition("payment_logs.csv")
-                    out_table_path = csv_file.full_path
+                # Cesta k výstupnímu CSV souboru
+                csv_file = self.create_out_table_definition("payment_logs.csv")
+                out_table_path = csv_file.full_path
 
-                    # Uložení výsledků do CSV
-                    expanded_data.to_csv(out_table_path, index=False)
-                    print(f"Data byla úspěšně uložena do souboru: {out_table_path}")
-                else:
-                    print("Nebyla nalezena žádná data odpovídající dotazu.")
+                # Uložení výsledků do CSV
+                expanded_data.to_csv(out_table_path, index=False)
+                print(f"Data byla úspěšně uložena do souboru: {out_table_path}")
             else:
-                print(f"Chyba při odesílání požadavku: {response.status_code}")
-                print(response.text)
+                print("Nebyla nalezena žádná data odpovídající dotazu.")
+        else:
+            print(f"Chyba při odesílání požadavku: {response.status_code}")
+            print(response.text)
 
-            response = requests.get(url, auth=HTTPBasicAuth(username, password), timeout=100, verify=False)
-            logging.info("Response code:" + str(response.status_code))
+        response = requests.get(url, auth=HTTPBasicAuth(username, password), timeout=100, verify=False)
+        logging.info("Response code:" + str(response.status_code))
 
     def _create_and_start_ssh_tunnel(self, params):
         """Sets up and starts the SSH tunnel."""
