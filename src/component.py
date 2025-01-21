@@ -1,13 +1,5 @@
-# import json
-import datetime
 import logging
-import csv
-# import time
 import pandas as pd
-import json
-
-import requests
-from requests.auth import HTTPBasicAuth
 from opensearchpy import OpenSearch
 
 from keboola.component.base import ComponentBase
@@ -20,7 +12,7 @@ from sshtunnel import SSHTunnelForwarder
 KEY_GROUP_DB = 'db'
 KEY_DB_HOSTNAME = 'hostname'
 KEY_DB_PORT = 'port'
-KEY_QUERY = 'request_body'  # this is named like this for backwards compatibility
+KEY_QUERY = 'request_body'
 KEY_INDEX_NAME = 'index_name'
 KEY_STORAGE_TABLE = 'storage_table'
 KEY_PRIMARY_KEYS = 'primary_keys'
@@ -82,103 +74,22 @@ class Component(ComponentBase):
             raise UserException("Missing database hostname or port.")
         logging.info("Validation successful.")
 
-    def test_health(self, params):
-        logging.info("OS health testing...")
-
-        local_host = 'os.gopay.com'
-        local_port = '443'
-
-        # Kontrola stavu SSH tunelu
-        if hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
-            logging.info("OK - Tunnel is active.")
-            logging.info(self.ssh_tunnel.is_active)
-            local_host, local_port = self.ssh_tunnel.local_bind_address
-        else:
-            logging.warning("SSH tunnel is not active or not configured.")
-
-        response_data = {
-            "cluster_name": "",
-            "status": "",
-            "timed_out": "",
-            "number_of_nodes": "",
-            "number_of_data_nodes": "",
-            "discovered_master": "",
-            "discovered_cluster_manager": "",
-            "active_primary_shards": "",
-            "active_shards": "",
-            "relocating_shards": "",
-            "initializing_shards": "",
-            "unassigned_shards": "",
-            "delayed_unassigned_shards": "",
-            "number_of_pending_tasks": "",
-            "number_of_in_flight_fetch": "",
-            "task_max_waiting_in_queue_millis": "",
-            "active_shards_percent_as_number": "",
-        }
-
-        # Sestavení URL
-        url = f"https://{local_host}:{local_port}/_cluster/health"
-
-        auth_params = params.get(KEY_GROUP_AUTH, {})
-        username = auth_params.get(KEY_API_KEY_ID)
-        password = auth_params.get(KEY_API_KEY)
-
-        logging.info("Connecting to " + url)
-        logging.info("Username: " + username)
-
-        response = requests.get(url, auth=HTTPBasicAuth(username, password), timeout=100, verify=False)
-        logging.info("Response code:" + str(response.status_code))
-
-        # Cesta k výstupnímu CSV souboru
-        csv_file = self.create_out_table_definition("cluster_health.csv")
-        out_table_path = csv_file.full_path
-
-        # Pokud je odpověď 200, zpracuje se jako JSON a uloží
-        if response.status_code == 200:
-            logging.info("Connected successfully to the server.")
-            logging.info("GET request, url: " + url)
-            response_data = response.json()
-            logging.info("Response: " + str(response_data))
-        else:
-            logging.warning(f"Failed to connect: {response.status_code}")
-
-        response_data['date'] = datetime.datetime.now()
-
-        # Uložení dat (platných nebo prázdných) jako CSV
-        try:
-            with open(out_table_path, mode='w', newline='', encoding='utf-8') as file:
-                writer = csv.writer(file)
-                # Zápis hlaviček (klíčů JSON odpovědi)
-                writer.writerow(response_data.keys())
-                # Zápis hodnot (hodnot JSON odpovědi nebo prázdné hodnoty)
-                writer.writerow(response_data.values())
-
-            logging.info(f"Data byla uložena do souboru {out_table_path}.")
-        except Exception as e:
-            logging.error(f"Chyba při ukládání do souboru: {e}")
-        finally:
-            logging.info("Po pokusu o uložení souboru.")
-
     def get_data_client(self, params):
 
-        # Načtení seznamu plateb ze vstupního CSV
-        input_csv = ("../data/in/tables/input.csv")  # Název vstupního souboru
+        # Data input
+        input_csv = "../data/in/tables/input.csv"
         payment_data = pd.read_csv(input_csv)
 
-        # Vyber hodnoty ze sloupce se seznamem plateb (např. 'payment_id')
         payment_ids = payment_data['payment_session_id'].dropna().astype(str).tolist()
 
         auth_params = params.get(KEY_GROUP_AUTH, {})
         username = auth_params.get(KEY_API_KEY_ID)
         password = auth_params.get(KEY_API_KEY)
 
-        # logging.info("Connecting to " + url)
-        # logging.info("Username: " + username)
-
         local_host = 'os.gopay.com'
         local_port = '443'
 
-        # Kontrola stavu SSH tunelu
+        # SSH tunel test
         if hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
             logging.info("OK - Tunnel is active.")
             logging.info(self.ssh_tunnel.is_active)
@@ -189,16 +100,12 @@ class Component(ComponentBase):
         client = OpenSearch(
             hosts=[{"host": local_host, "port": local_port}],
             http_auth=(username, password),
-            use_ssl=True,  # Povolit SSL připojení
-            verify_certs=False,  # Vypnout ověřování certifikátů, pokud nejsou validní
+            use_ssl=True,
+            verify_certs=False,
             ssl_assert_hostname=False,
             ssl_show_warn=False,
         )
 
-        # Seznam čísel plateb (Můžeš načíst z CSV)
-        # payment_ids = ["8998403571", "8997989023", '8998443805', "8998443804", "8998443803"]  # Testovací seznam
-
-        # Hlavní seznam pro shromáždění všech výsledků
         all_results = []
 
         for pid in payment_ids:
@@ -220,136 +127,35 @@ class Component(ComponentBase):
                 all_results.extend(hits)
 
             except Exception as e:
-                print(f"Chyba při zpracování ID {pid}: {e}")
+                print(f"Data extraction failed for ID {pid}: {e}")
 
-        # Zpracování výsledků, pokud byly nalezeny
         if all_results:
-            # Převod záznamů do DataFrame
             df = pd.DataFrame(all_results)
 
-            # Bezpečné načtení JSON dat z '_source'
             def parse_json(source):
                 return source if isinstance(source, dict) else {}
 
             df['_source'] = df['_source'].apply(parse_json)
 
-            # Přidání sloupce 'payment_session_id'
             def assign_payment_id(row):
-                for pid in payment_ids:
-                    if pid in str(row['_source']):  # Kontrola, zda je ID v datech
-                        return pid
+                for payment_id in payment_ids:
+                    if payment_id in str(row['_source']):
+                        return payment_id
                 return None
 
             df['payment_session_id'] = df.apply(assign_payment_id, axis=1)
 
-            # Rozbalení JSON sloupce '_source'
             source_expanded = pd.json_normalize(df['_source'])
 
-            # Spojení s původními sloupci (_id, _index a payment_session_id)
             expanded_data = pd.concat([df[['_id', '_index', 'payment_session_id']], source_expanded], axis=1)
 
-            # Cesta k výstupnímu CSV souboru
+            # CSV Output file
             csv_file = self.create_out_table_definition("payment_logs.csv")
             out_table_path = csv_file.full_path
             expanded_data.to_csv(out_table_path, index=False)
-            print(f"Data byla uložena do souboru: {out_table_path}")
+            print(f"Data saved to file: {out_table_path}")
         else:
-            print("Nebyla nalezena žádná data odpovídající dotazu.")
-
-    def query_data(self, params):
-        logging.info("Getting logs...")
-
-        local_host = 'os.gopay.com'
-        local_port = '443'
-
-        # Kontrola stavu SSH tunelu
-        if hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
-            logging.info("OK - Tunnel is active.")
-            logging.info(self.ssh_tunnel.is_active)
-            local_host, local_port = self.ssh_tunnel.local_bind_address
-        else:
-            logging.warning("SSH tunnel is not active or not configured.")
-
-        # Sestavení URL
-        url = f"https://{local_host}:{local_port}/app-logs-prod/_search"
-        logging.info(f"URL: {url}")
-
-        # Načtení seznamu plateb ze vstupního CSV
-        input_csv = ("../data/in/tables/input.csv")  # Název vstupního souboru
-        payment_data = pd.read_csv(input_csv)
-
-        # Vyber hodnoty ze sloupce se seznamem plateb (např. 'payment_id')
-        payment_ids = payment_data['payment_session_id'].dropna().astype(str).tolist()
-
-        auth_params = params.get(KEY_GROUP_AUTH, {})
-        username = auth_params.get(KEY_API_KEY_ID)
-        password = auth_params.get(KEY_API_KEY)
-
-        logging.info("Connecting to " + url)
-        logging.info("Username: " + username)
-
-        query = {
-            "query": {
-                "bool": {
-                    "should": [{"query_string": {"query": pid}} for pid in payment_ids]
-                }
-            },
-            "size": 10000  # Zvýšení limitu počtu výsledků
-        }
-
-        # Odeslání požadavku s Basic Auth
-        response = requests.post(url, auth=HTTPBasicAuth(username, password), json=query, verify=False)
-
-        if response.status_code == 200:
-            # Parsování JSON odpovědi
-            data = response.json()
-            hits = data.get("hits", {}).get("hits", [])
-
-            if hits:
-                # Převod záznamů do DataFrame
-                df = pd.DataFrame(hits)
-
-                # Bezpečné načtení JSON dat z '_source'
-                def parse_json(source):
-                    try:
-                        return json.loads(source) if isinstance(source, str) else source
-                    except json.JSONDecodeError:
-                        return {}
-
-                df['_source'] = df['_source'].apply(parse_json)
-
-                # Přidání sloupce 'payment_session_id' ke každému záznamu
-                def assign_payment_id(row):
-                    try:
-                        if isinstance(row['_source'], dict):
-                            for pid in payment_ids:
-                                if pid in json.dumps(row['_source']):  # Kontrola, zda je ID v datech
-                                    return pid
-                        return None
-                    except Exception as e:
-                        logging.error(f"Chyba při přiřazování payment_session_id: {e}")
-                        return None
-
-                df['payment_session_id'] = df.apply(assign_payment_id, axis=1)
-
-                # Rozbalení JSON sloupce '_source'
-                source_expanded = pd.json_normalize(df['_source'])
-
-                # Spojení s původními sloupci (_id, _index a payment_session_id)
-                expanded_data = pd.concat([df[['_id', '_index', 'payment_session_id']], source_expanded], axis=1)
-
-                # Cesta k výstupnímu CSV souboru
-                csv_file = self.create_out_table_definition("payment_logs.csv")
-                out_table_path = csv_file.full_path
-
-                # Uložení výsledků do CSV
-                expanded_data.to_csv(out_table_path, index=False)
-                print(f"Data byla úspěšně uložena do souboru: {out_table_path}")
-            else:
-                print("Nebyla nalezena žádná data odpovídající dotazu.")
-        else:
-            print(f"Chyba při odesílání požadavku: {response.status_code}")
-            print(response.text)
+            print("No data extracted.")
 
     def _create_and_start_ssh_tunnel(self, params):
         """Sets up and starts the SSH tunnel."""
@@ -399,6 +205,7 @@ class Component(ComponentBase):
         self.validate_configuration_parameters(REQUIRED_PARAMETERS)
         params = self.configuration.parameters
         self.validate_params(params)
+        logging.getLogger("opensearch").setLevel(logging.WARNING)
 
         ssh_tunnel_started = False
         try:
@@ -410,15 +217,12 @@ class Component(ComponentBase):
                 self._create_and_start_ssh_tunnel(params)
                 ssh_tunnel_started = True
 
-            # Test
             try:
-                self.test_health(params)
-                # self.query_data(params)
                 self.get_data_client(params)
             except Exception as e:
-                logging.error(f"Test selhal: {e}")
+                logging.error(f"Data extraction fail: {e}")
             finally:
-                logging.info("Konec testu.")
+                logging.info("Data extraction finished.")
 
         except Exception as e:
             logging.error(f"Unexpected error during component execution: {type(e).__name__} - {str(e)}")
