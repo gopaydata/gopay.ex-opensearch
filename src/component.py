@@ -200,7 +200,7 @@ class Component(ComponentBase):
             }
 
             # Odeslání požadavku s Basic Auth
-            response = requests.post(url, auth=HTTPBasicAuth(username, password), json=query)
+            response = requests.post(url, auth=HTTPBasicAuth(username, password), json=query, verify=False)
 
             if response.status_code == 200:
                 # Parsování JSON odpovědi
