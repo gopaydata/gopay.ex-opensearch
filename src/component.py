@@ -8,18 +8,13 @@ import json
 
 import requests
 from requests.auth import HTTPBasicAuth
+from opensearchpy import OpenSearch
 
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
 
-# from client.es_client import ElasticsearchClient
 from client.ssh_utils import get_private_key
 from sshtunnel import SSHTunnelForwarder
-
-# from requests.auth import AuthBase
-# from requests.models import Response
-
-# import traceback
 
 # configuration variables
 KEY_GROUP_DB = 'db'
@@ -163,6 +158,107 @@ class Component(ComponentBase):
             logging.error(f"Chyba při ukládání do souboru: {e}")
         finally:
             logging.info("Po pokusu o uložení souboru.")
+
+    def get_data_client(self, params):
+
+        # Načtení seznamu plateb ze vstupního CSV
+        input_csv = ("../data/in/tables/input.csv")  # Název vstupního souboru
+        payment_data = pd.read_csv(input_csv)
+
+        # Vyber hodnoty ze sloupce se seznamem plateb (např. 'payment_id')
+        payment_ids = payment_data['payment_session_id'].dropna().astype(str).tolist()
+
+        auth_params = params.get(KEY_GROUP_AUTH, {})
+        username = auth_params.get(KEY_API_KEY_ID)
+        password = auth_params.get(KEY_API_KEY)
+
+        # logging.info("Connecting to " + url)
+        # logging.info("Username: " + username)
+
+        local_host = 'os.gopay.com'
+        local_port = '443'
+
+        # Kontrola stavu SSH tunelu
+        if hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
+            logging.info("OK - Tunnel is active.")
+            logging.info(self.ssh_tunnel.is_active)
+            local_host, local_port = self.ssh_tunnel.local_bind_address
+        else:
+            logging.warning("SSH tunnel is not active or not configured.")
+
+        client = OpenSearch(
+            hosts=[{"host": local_host, "port": local_port}],
+            http_auth=(username, password),
+            use_ssl=True,  # Povolit SSL připojení
+            verify_certs=False,  # Vypnout ověřování certifikátů, pokud nejsou validní
+            ssl_assert_hostname=False,
+            ssl_show_warn=False,
+        )
+
+        # Seznam čísel plateb (Můžeš načíst z CSV)
+        # payment_ids = ["8998403571", "8997989023", '8998443805', "8998443804", "8998443803"]  # Testovací seznam
+
+        # Rozdělení payment_ids na dávky po 1024
+        batch_size = 1024
+        batches = [payment_ids[i:i + batch_size] for i in range(0, len(payment_ids), batch_size)]
+
+        # Hlavní seznam pro shromáždění všech výsledků
+        all_results = []
+
+        for pid in payment_ids:
+            query = {
+                "query": {
+                    "query_string": {
+                        "query": pid
+                    }
+                },
+                "size": 1000
+            }
+
+            try:
+                response = client.search(
+                    body=query,
+                    index="app-logs-prod"
+                )
+                hits = response.get("hits", {}).get("hits", [])
+                all_results.extend(hits)
+
+            except Exception as e:
+                print(f"Chyba při zpracování ID {pid}: {e}")
+
+        # Zpracování výsledků, pokud byly nalezeny
+        if all_results:
+            # Převod záznamů do DataFrame
+            df = pd.DataFrame(all_results)
+
+            # Bezpečné načtení JSON dat z '_source'
+            def parse_json(source):
+                return source if isinstance(source, dict) else {}
+
+            df['_source'] = df['_source'].apply(parse_json)
+
+            # Přidání sloupce 'payment_session_id'
+            def assign_payment_id(row):
+                for pid in payment_ids:
+                    if pid in str(row['_source']):  # Kontrola, zda je ID v datech
+                        return pid
+                return None
+
+            df['payment_session_id'] = df.apply(assign_payment_id, axis=1)
+
+            # Rozbalení JSON sloupce '_source'
+            source_expanded = pd.json_normalize(df['_source'])
+
+            # Spojení s původními sloupci (_id, _index a payment_session_id)
+            expanded_data = pd.concat([df[['_id', '_index', 'payment_session_id']], source_expanded], axis=1)
+
+            # Cesta k výstupnímu CSV souboru
+            csv_file = self.create_out_table_definition("payment_logs.csv")
+            out_table_path = csv_file.full_path
+            expanded_data.to_csv(out_table_path, index=False)
+            print(f"Data byla uložena do souboru: {out_table_path}")
+        else:
+            print("Nebyla nalezena žádná data odpovídající dotazu.")
 
     def query_data(self, params):
         logging.info("Getting logs...")
@@ -321,7 +417,8 @@ class Component(ComponentBase):
             # Test
             try:
                 self.test_health(params)
-                self.query_data(params)
+                # self.query_data(params)
+                self.get_data_client(params)
             except Exception as e:
                 logging.error(f"Test selhal: {e}")
             finally:

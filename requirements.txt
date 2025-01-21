@@ -15,3 +15,4 @@ cryptography==36.0.2 # to supress Blowfish warnings from Paramiko
 sshtunnel==0.4.0
 requests
 pandas
+opensearchpy
