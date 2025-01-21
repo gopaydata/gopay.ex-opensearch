@@ -4,6 +4,7 @@ import logging
 import csv
 # import time
 import pandas as pd
+import json
 
 import requests
 from requests.auth import HTTPBasicAuth
@@ -186,12 +187,6 @@ class Component(ComponentBase):
 
             logging.info("Connecting to " + url)
             logging.info("Username: " + username)
-
-            # Parametry pro připojení k OpenSearch
-            # url = "https://os.gopay.com/app-logs-prod/_search"
-            # username = "keboola"  # Zadej uživatelské jméno
-            # password = "TFzak4.iFE_mFvz4Caw"  # Zadej heslo
-
 
             query = {
                 "query": {
