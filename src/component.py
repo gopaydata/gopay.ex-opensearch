@@ -198,10 +198,6 @@ class Component(ComponentBase):
         # Seznam čísel plateb (Můžeš načíst z CSV)
         # payment_ids = ["8998403571", "8997989023", '8998443805', "8998443804", "8998443803"]  # Testovací seznam
 
-        # Rozdělení payment_ids na dávky po 1024
-        batch_size = 1024
-        batches = [payment_ids[i:i + batch_size] for i in range(0, len(payment_ids), batch_size)]
-
         # Hlavní seznam pro shromáždění všech výsledků
         all_results = []
 
