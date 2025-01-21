@@ -202,7 +202,7 @@ class Component(ComponentBase):
                     "should": [{"query_string": {"query": pid}} for pid in payment_ids]
                 }
             },
-            "size": 1000  # Zvýšení limitu počtu výsledků
+            "size": 10000  # Zvýšení limitu počtu výsledků
         }
 
         # Odeslání požadavku s Basic Auth
