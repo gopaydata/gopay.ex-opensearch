@@ -165,7 +165,7 @@ class Component(ComponentBase):
             logging.info("Po pokusu o uložení souboru.")
 
     def query_data(self, params):
-        logging.info("OS health testing...")
+        logging.info("Getting logs...")
 
         local_host = 'os.gopay.com'
         local_port = '443'
@@ -180,6 +180,8 @@ class Component(ComponentBase):
 
             # Sestavení URL
             url = f"https://{local_host}:{local_port}/app-logs-prod/_search"
+            logging.info(f"URL: {url}")
+            payment_ids = ["8998403571", "8997989023", "1122334455"]
 
             auth_params = params.get(KEY_GROUP_AUTH, {})
             username = auth_params.get(KEY_API_KEY_ID)
@@ -190,11 +192,11 @@ class Component(ComponentBase):
 
             query = {
                 "query": {
-                    "query_string": {
-                        "query": "8997989023"  # Číslo platby
+                    "bool": {
+                        "should": [{"query_string": {"query": pid}} for pid in payment_ids]
                     }
                 },
-                "size": 10000  # Zvýšení limitu počtu výsledků
+                "size": 1000  # Zvýšení limitu počtu výsledků
             }
 
             # Odeslání požadavku s Basic Auth
