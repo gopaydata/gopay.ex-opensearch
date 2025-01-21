@@ -181,7 +181,13 @@ class Component(ComponentBase):
         # Sestavení URL
         url = f"https://{local_host}:{local_port}/app-logs-prod/_search"
         logging.info(f"URL: {url}")
-        payment_ids = ["8998403571", "8997989023", "1122334455"]
+
+        # Načtení seznamu plateb ze vstupního CSV
+        input_csv = ("../data/in/tables/input.csv")  # Název vstupního souboru
+        payment_data = pd.read_csv(input_csv)
+
+        # Vyber hodnoty ze sloupce se seznamem plateb (např. 'payment_id')
+        payment_ids = payment_data['payment_session_id'].dropna().astype(str).tolist()
 
         auth_params = params.get(KEY_GROUP_AUTH, {})
         username = auth_params.get(KEY_API_KEY_ID)
@@ -218,12 +224,27 @@ class Component(ComponentBase):
                     except json.JSONDecodeError:
                         return {}
 
-                # Rozbalení JSON sloupce '_source'
                 df['_source'] = df['_source'].apply(parse_json)
+
+                # Přidání sloupce 'payment_session_id' ke každému záznamu
+                def assign_payment_id(row):
+                    try:
+                        if isinstance(row['_source'], dict):
+                            for pid in payment_ids:
+                                if pid in json.dumps(row['_source']):  # Kontrola, zda je ID v datech
+                                    return pid
+                        return None
+                    except Exception as e:
+                        logging.error(f"Chyba při přiřazování payment_session_id: {e}")
+                        return None
+
+                df['payment_session_id'] = df.apply(assign_payment_id, axis=1)
+
+                # Rozbalení JSON sloupce '_source'
                 source_expanded = pd.json_normalize(df['_source'])
 
-                # Spojení s původními sloupci (_id a _index)
-                expanded_data = pd.concat([df[['_id', '_index']], source_expanded], axis=1)
+                # Spojení s původními sloupci (_id, _index a payment_session_id)
+                expanded_data = pd.concat([df[['_id', '_index', 'payment_session_id']], source_expanded], axis=1)
 
                 # Cesta k výstupnímu CSV souboru
                 csv_file = self.create_out_table_definition("payment_logs.csv")
@@ -237,9 +258,6 @@ class Component(ComponentBase):
         else:
             print(f"Chyba při odesílání požadavku: {response.status_code}")
             print(response.text)
-
-        response = requests.get(url, auth=HTTPBasicAuth(username, password), timeout=100, verify=False)
-        logging.info("Response code:" + str(response.status_code))
 
     def _create_and_start_ssh_tunnel(self, params):
         """Sets up and starts the SSH tunnel."""
