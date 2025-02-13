@@ -14,5 +14,3 @@ __pycache__/
 .python-version
 
 # Test files
-/data/out/tables/component - test.py
-/src/component - funkční test _cluster_health.py

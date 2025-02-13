@@ -1,10 +1,16 @@
 import logging
+import os
+from operator import index
+
 import pandas as pd
 from opensearchpy import OpenSearch
+import pytz  # Převod na časovou zónu
 
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
+from pandas.io.common import file_exists
 
+from datetime import datetime, timedelta
 from client.ssh_utils import get_private_key
 from sshtunnel import SSHTunnelForwarder
 
@@ -44,6 +50,9 @@ KEY_SSH_USERNAME = "user"
 KEY_SSH_TUNNEL_HOST = "sshHost"
 KEY_SSH_TUNNEL_PORT = "sshPort"
 
+KEY_DATE = "date"
+KEY_HOUR = 'hours'
+
 LOCAL_BIND_ADDRESS = "127.0.0.1"
 
 KEY_LEGACY_SSH = 'ssh'
@@ -52,6 +61,14 @@ REQUIRED_PARAMETERS = [KEY_GROUP_DB]
 
 RSA_HEADER = "-----BEGIN RSA PRIVATE KEY-----"
 
+# Definice požadovaných sloupců
+REQUIRED_COLUMNS = [
+    "@timestamp", "beat.hostname", "es_index", "event.action", "host.env", "host.name",
+    "labels.relevant_domain", "labels.relevant_domain_id", "labels.source_class_name",
+    "labels.system_log_severity", "log.file.path", "log.level", "log.logger", "message",
+    "process.thread.name", "service.environment", "service.name", "service.node.name",
+    "service.type", "source.ip", "user_agent.original", "user_agent.os.full", "user_agent.os.name"
+]
 
 class Component(ComponentBase):
 
@@ -75,28 +92,33 @@ class Component(ComponentBase):
         logging.info("Validation successful.")
 
     def get_data_client(self, params):
+        """ Fetches data from OpenSearch based on the given parameters. """
 
-        # Data input
-        input_csv = "../data/in/tables/input.csv"
-        payment_data = pd.read_csv(input_csv)
-
-        payment_ids = payment_data['payment_session_id'].dropna().astype(str).tolist()
-
+        # Authentication parameters
         auth_params = params.get(KEY_GROUP_AUTH, {})
         username = auth_params.get(KEY_API_KEY_ID)
         password = auth_params.get(KEY_API_KEY)
 
+        # Extract parameters
+        param_date = params.get(KEY_DATE, '2025-01-01')  # Default date if not provided
+        param_hours = int(params.get(KEY_HOUR, 1))  # Default to 1 hour increment
+        index_name = params.get(KEY_INDEX_NAME)
+
+        print(f"Increment {param_hours} hour(s)")
+        print(f"Index name: {index_name}")
+
+        # OpenSearch connection settings
         local_host = 'os.gopay.com'
         local_port = '443'
 
-        # SSH tunel test
+        # Check if an SSH tunnel is active
         if hasattr(self, "ssh_tunnel") and self.ssh_tunnel.is_active:
             logging.info("OK - Tunnel is active.")
-            logging.info(self.ssh_tunnel.is_active)
             local_host, local_port = self.ssh_tunnel.local_bind_address
         else:
             logging.warning("SSH tunnel is not active or not configured.")
 
+        # OpenSearch client initialization
         client = OpenSearch(
             hosts=[{"host": local_host, "port": local_port}],
             http_auth=(username, password),
@@ -106,56 +128,134 @@ class Component(ComponentBase):
             ssl_show_warn=False,
         )
 
-        all_results = []
+        # File paths for output and last processed record tracking
+        csv_file = self.create_out_table_definition("os_output.csv")
+        out_table_path = csv_file.full_path
+        last_item_path = os.path.join(os.path.dirname(out_table_path), "last_item.csv")
+        in_table_path = "../data/in/tables/last_item.csv"
 
-        for pid in payment_ids:
-            query = {
-                "query": {
-                    "query_string": {
-                        "query": pid
-                    }
-                },
-                "size": 1000
-            }
+        last_id = None
+        last_timestamp = None
 
+        # Load last processed timestamp and ID
+        if os.path.exists(in_table_path):
             try:
-                response = client.search(
-                    body=query,
-                    index="app-logs-prod"
-                )
-                hits = response.get("hits", {}).get("hits", [])
-                all_results.extend(hits)
-
+                last_item_df = pd.read_csv(last_item_path, dtype=str)
+                if not last_item_df.empty:
+                    last_id = last_item_df.iloc[0]["id"]
+                    last_timestamp = last_item_df.iloc[0]["timestamp_cz"]
+                    print(f"Continuing from last timestamp: {last_timestamp} (ID: {last_id})")
             except Exception as e:
-                print(f"Data extraction failed for ID {pid}: {e}")
+                print(f"Error reading last_item.csv: {e}")
 
-        if all_results:
-            df = pd.DataFrame(all_results)
+        # If no timestamp is stored, start from the provided date
+        if not last_timestamp:
+            last_timestamp = f"{param_date}T00:00:00"
 
-            def parse_json(source):
-                return source if isinstance(source, dict) else {}
+        # Convert timestamp from Prague timezone to UTC
+        prague_tz = pytz.timezone("Europe/Prague")
+        last_timestamp_dt = datetime.strptime(last_timestamp, "%Y-%m-%dT%H:%M:%S")
+        last_timestamp_dt = prague_tz.localize(last_timestamp_dt)
+        last_timestamp_utc = last_timestamp_dt.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
-            df['_source'] = df['_source'].apply(parse_json)
+        # Set upper time limit based on incremented hours
+        upper_timestamp_dt = (last_timestamp_dt + timedelta(hours=param_hours)).replace(second=0, microsecond=0)
+        upper_timestamp_utc = upper_timestamp_dt.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
-            def assign_payment_id(row):
-                for payment_id in payment_ids:
-                    if payment_id in str(row['_source']):
-                        return payment_id
-                return None
+        # OpenSearch query to fetch data within the given time range
+        query = {
+            "query": {
+                "range": {
+                    "@timestamp": {
+                        "gt": last_timestamp_utc,  # Use UTC timestamp
+                        "lte": upper_timestamp_utc,  # Upper time limit in UTC
+                        "format": "yyyy-MM-dd'T'HH:mm:ss"
+                    }
+                }
+            },
+            "size": 10000,
+            "sort": [
+                {"@timestamp": "asc"}
+            ]
+        }
 
-            df['payment_session_id'] = df.apply(assign_payment_id, axis=1)
+        scroll_time = "10m"
+        file_exists = os.path.exists(out_table_path)
 
-            source_expanded = pd.json_normalize(df['_source'])
+        try:
+            # Initial OpenSearch request
+            response = client.search(
+                body=query,
+                index=index_name,
+                scroll=scroll_time
+            )
+            scroll_id = response.get("_scroll_id")
+            hits = response.get("hits", {}).get("hits", [])
 
-            expanded_data = pd.concat([df[['_id', '_index', 'payment_session_id']], source_expanded], axis=1)
+            total_saved = 0
 
-            # CSV Output file
-            csv_file = self.create_out_table_definition("payment_logs.csv")
-            out_table_path = csv_file.full_path
-            expanded_data.to_csv(out_table_path, index=False)
-            print(f"Data saved to file: {out_table_path}")
-        else:
-            print("No data extracted.")
+            while hits:
+                df = pd.DataFrame(hits)
+
+                if not df.empty:
+                    df['_source'] = df['_source'].apply(lambda x: x if isinstance(x, dict) else {})
+
+                    source_expanded = pd.json_normalize(df['_source'])
+                    selected_columns = [col for col in REQUIRED_COLUMNS if col in source_expanded.columns]
+                    filtered_data = source_expanded[selected_columns] if selected_columns else source_expanded
+
+                    # Add `_id` and `_index`
+                    filtered_data.insert(0, '_id', df['_id'])
+                    filtered_data.insert(1, '_index', df['_index'])
+
+                    # Convert `@timestamp` to Prague timezone before saving to CSV
+                    if "@timestamp" in filtered_data.columns:
+                        filtered_data.loc[:, "@timestamp"] = (
+                            pd.to_datetime(filtered_data["@timestamp"], utc=True)
+                            .dt.tz_convert(prague_tz)
+                            .dt.strftime("%Y-%m-%dT%H:%M:%S.%f")
+                        )
+
+                    # Ensure `labels.relevant_domain_id` is stored as a string
+                    if 'labels.relevant_domain_id' in filtered_data.columns:
+                        filtered_data = filtered_data.astype({'labels.relevant_domain_id': 'string'})
+                        filtered_data.loc[:, 'labels.relevant_domain_id'] = (
+                            filtered_data['labels.relevant_domain_id']
+                            .fillna('0')
+                            .astype(str)
+                            .str.replace(r'\.0$', '', regex=True)
+                        )
+
+                    # Rename columns (remove `_` and `@`, replace `.` with `_`)
+                    filtered_data = filtered_data.rename(columns=lambda x: x.lstrip("@_").replace(".", "_"))
+
+                    # Save to CSV
+                    filtered_data.to_csv(out_table_path, index=False, mode='a', header=not file_exists)
+                    file_exists = True
+                    total_saved += len(filtered_data)
+                    print(f"Saved {total_saved:,} rows to file {out_table_path}".replace(",", " "))
+
+                    # Store last processed `_id` and `@timestamp`
+                    last_id = str(filtered_data['id'].iloc[-1])
+                    last_timestamp = df["_source"].iloc[-1]["@timestamp"]
+
+                # Fetch next batch of data
+                response = client.scroll(scroll_id=scroll_id, scroll=scroll_time)
+                hits = response.get("hits", {}).get("hits", [])
+
+                # Store last processed record in `last_item.csv` with both UTC and Prague timestamps
+                if last_id and last_timestamp:
+                    last_timestamp_dt = datetime.strptime(last_timestamp, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
+                        tzinfo=pytz.utc)
+                    last_timestamp_cz = last_timestamp_dt.astimezone(prague_tz).strftime("%Y-%m-%dT%H:%M:%S")
+
+                    last_item_df = pd.DataFrame(
+                        [{"id": last_id, "timestamp": last_timestamp, "timestamp_cz": last_timestamp_cz}]
+                    )
+                    last_item_df.to_csv(last_item_path, index=False)
+
+        except Exception as e:
+            print(f"Data extraction failed: {e}")
 
     def _create_and_start_ssh_tunnel(self, params):
         """Sets up and starts the SSH tunnel."""
