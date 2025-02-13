@@ -1,6 +1,5 @@
 import logging
 import os
-from operator import index
 
 import pandas as pd
 from opensearchpy import OpenSearch
@@ -8,7 +7,6 @@ import pytz  # Převod na časovou zónu
 
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
-from pandas.io.common import file_exists
 
 from datetime import datetime, timedelta
 from client.ssh_utils import get_private_key
@@ -69,6 +67,7 @@ REQUIRED_COLUMNS = [
     "process.thread.name", "service.environment", "service.name", "service.node.name",
     "service.type", "source.ip", "user_agent.original", "user_agent.os.full", "user_agent.os.name"
 ]
+
 
 class Component(ComponentBase):
 
