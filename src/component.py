@@ -103,7 +103,7 @@ class Component(ComponentBase):
         """ Fetches data from OpenSearch based on the given parameters. """
 
         logging.info("Fetching data from OpenSearch...")
-        self.log_memory_usage("Before fetching data")
+        # self.log_memory_usage("Before fetching data")
 
         # Authentication parameters
         auth_params = params.get(KEY_GROUP_AUTH, {})
@@ -145,13 +145,15 @@ class Component(ComponentBase):
         last_item_path = os.path.join(os.path.dirname(out_table_path), "last_item.csv")
         in_table_path = "../data/in/tables/last_item.csv"
 
+        logging.info(f"{in_table_path} exists: {os.path.exists(in_table_path)}")
+
         last_id = None
         last_timestamp = None
 
         # Load last processed timestamp and ID
         if os.path.exists(in_table_path):
             try:
-                last_item_df = pd.read_csv(last_item_path, dtype=str)
+                last_item_df = pd.read_csv(in_table_path, dtype=str)
                 if not last_item_df.empty:
                     last_id = last_item_df.iloc[0]["id"]
                     last_timestamp = last_item_df.iloc[0]["timestamp_cz"]
@@ -184,7 +186,7 @@ class Component(ComponentBase):
                     }
                 }
             },
-            "size": 1000,
+            "size": 500,
             "sort": [
                 {"@timestamp": "asc"}
             ]
@@ -207,16 +209,16 @@ class Component(ComponentBase):
 
             while hits:
                 df = pd.DataFrame(hits)
-                self.log_memory_usage("After creating DataFrame")
+                # self.log_memory_usage("After creating DataFrame")
 
                 if not df.empty:
                     df['_source'] = df['_source'].apply(lambda x: x if isinstance(x, dict) else {})
 
                     source_expanded = pd.json_normalize(df['_source'])
-                    self.log_memory_usage("After json_normalize")
+                    # self.log_memory_usage("After json_normalize")
                     selected_columns = [col for col in REQUIRED_COLUMNS if col in source_expanded.columns]
                     filtered_data = source_expanded[selected_columns] if selected_columns else source_expanded
-                    self.log_memory_usage("After filtering columns")
+                    # self.log_memory_usage("After filtering columns")
 
                     # Add `_id` and `_index`
                     filtered_data.insert(0, '_id', df['_id'])
@@ -248,7 +250,7 @@ class Component(ComponentBase):
                     file_exists = True
                     total_saved += len(filtered_data)
                     print(f"Saved {total_saved:,} rows to file {out_table_path}".replace(",", " "))
-                    self.log_memory_usage("After saving CSV")
+                    self.log_memory_usage("Actual memory usage")
 
                     # Store last processed `_id` and `@timestamp`
                     last_id = str(filtered_data['id'].iloc[-1])
@@ -257,12 +259,12 @@ class Component(ComponentBase):
                     # Uvolnění paměti
                     del df, filtered_data, source_expanded
                     gc.collect()
-                    self.log_memory_usage("After garbage collection")
+                    # self.log_memory_usage("After garbage collection")
 
                 # Fetch next batch of data
                 response = client.scroll(scroll_id=scroll_id, scroll=scroll_time)
                 hits = response.get("hits", {}).get("hits", [])
-                self.log_memory_usage("After fetching first batch")
+                # self.log_memory_usage("After fetching first batch")
 
                 # Store last processed record in `last_item.csv` with both UTC and Prague timestamps
                 if last_id and last_timestamp:
