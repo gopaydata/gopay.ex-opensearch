@@ -72,11 +72,13 @@ REQUIRED_COLUMNS = [
 
 class Component(ComponentBase):
 
-    def log_memory_usage(self, stage=""):
+    @staticmethod
+    def log_memory_usage(stage=""):
         process = psutil.Process()
         mem_info = process.memory_info()
         logging.info(
-            f"[MEMORY] {stage} - RSS: {mem_info.rss / (1024 * 1024):.2f} MB, VMS: {mem_info.vms / (1024 * 1024):.2f} MB")
+            f"[MEMORY] {stage} - RSS: {mem_info.rss / (1024 * 1024):.2f} MB, "
+            f"VMS: {mem_info.vms / (1024 * 1024):.2f} MB")
 
     def __init__(self):
         super().__init__()
