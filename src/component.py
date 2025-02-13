@@ -172,7 +172,7 @@ class Component(ComponentBase):
                     }
                 }
             },
-            "size": 10000,
+            "size": 5000,
             "sort": [
                 {"@timestamp": "asc"}
             ]
