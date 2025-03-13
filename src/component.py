@@ -137,6 +137,7 @@ class Component(ComponentBase):
             verify_certs=False,
             ssl_assert_hostname=False,
             ssl_show_warn=False,
+            timeout=30
         )
 
         # File paths for output and last processed record tracking
@@ -249,8 +250,8 @@ class Component(ComponentBase):
                     filtered_data.to_csv(out_table_path, index=False, mode='a', header=not file_exists)
                     file_exists = True
                     total_saved += len(filtered_data)
-                    print(f"Saved {total_saved:,} rows to file {out_table_path}".replace(",", " "))
-                    self.log_memory_usage("Actual memory usage")
+                    # print(f"Saved {total_saved:,} rows to file {out_table_path}".replace(",", " "))
+                    # self.log_memory_usage("Actual memory usage")
 
                     # Store last processed `_id` and `@timestamp`
                     last_id = str(filtered_data['id'].iloc[-1])
@@ -260,6 +261,8 @@ class Component(ComponentBase):
                     del df, filtered_data, source_expanded
                     gc.collect()
                     # self.log_memory_usage("After garbage collection")
+
+                print(f"Saved {total_saved:,} rows to file {out_table_path}".replace(",", " "))
 
                 # Fetch next batch of data
                 response = client.scroll(scroll_id=scroll_id, scroll=scroll_time)
