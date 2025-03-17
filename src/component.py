@@ -336,7 +336,7 @@ class Component(ComponentBase):
             # Souhrnné statistiky na konci procesu
             if memory_measurements:
                 avg_memory = sum(memory_measurements) / len(memory_measurements)
-                print(f"\nOVERALL MEMORY STATISTICS:")
+                print("\nOVERALL MEMORY STATISTICS:")
                 print(f"Data extraction completed in {elapsed_time:.2f} seconds")
                 print(f"Initial memory: {memory_measurements[0]:.2f} MB")
                 print(f"Final memory: {memory_measurements[-1]:.2f} MB")
@@ -420,6 +420,7 @@ class Component(ComponentBase):
                 logging.info("Stopping SSH tunnel...")
                 self.ssh_tunnel.stop()
                 logging.info("SSH tunnel stopped.")
+
 
 # Main entrypoint
 if __name__ == "__main__":
