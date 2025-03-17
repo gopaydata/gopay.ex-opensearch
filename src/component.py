@@ -5,7 +5,7 @@ import psutil
 import pandas as pd
 from opensearchpy import OpenSearch
 import pytz  # Převod na časovou zónu
-
+import time
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
 
@@ -101,9 +101,33 @@ class Component(ComponentBase):
 
     def get_data_client(self, params):
         """ Fetches data from OpenSearch based on the given parameters. """
-
+        start_time = time.time()
         logging.info("Fetching data from OpenSearch...")
-        # self.log_memory_usage("Before fetching data")
+
+        # Funkce pro sledování paměti
+        def get_memory_usage():
+            process = psutil.Process(os.getpid())
+            memory_info = process.memory_info()
+            # Převod na MB
+            return memory_info.rss / 1024 / 1024
+
+        # Inicializace proměnných pro sledování paměti
+        max_memory_usage = 0
+        memory_measurements = []
+        memory_points = []
+
+        # Funkce pro aktualizaci paměti a výpis stavu
+        def log_memory_usage(step_name=None):
+            nonlocal max_memory_usage
+            current_memory = get_memory_usage()
+            memory_measurements.append(current_memory)
+            if step_name:
+                memory_points.append((step_name, current_memory))
+                # Odstranění průběžného výpisu paměti
+            max_memory_usage = max(max_memory_usage, current_memory)
+            return current_memory
+
+        log_memory_usage("initialization")
 
         # Authentication parameters
         auth_params = params.get(KEY_GROUP_AUTH, {})
@@ -114,9 +138,11 @@ class Component(ComponentBase):
         param_date = params.get(KEY_DATE, '2025-01-01')  # Default date if not provided
         param_hours = int(params.get(KEY_HOUR, 1))  # Default to 1 hour increment
         index_name = params.get(KEY_INDEX_NAME)
+        batch_size = int(params.get("batch_size", 5000))  # Nastavení velikosti dávky z parametrů
 
         print(f"Increment {param_hours} hour(s)")
         print(f"Index name: {index_name}")
+        print(f"Batch size: {batch_size}")
 
         # OpenSearch connection settings
         local_host = 'os.gopay.com'
@@ -139,6 +165,7 @@ class Component(ComponentBase):
             ssl_show_warn=False,
             timeout=30
         )
+        log_memory_usage("after_client_init")
 
         # File paths for output and last processed record tracking
         csv_file = self.create_out_table_definition("os_output.csv")
@@ -175,6 +202,7 @@ class Component(ComponentBase):
         # Set upper time limit based on incremented hours
         upper_timestamp_dt = (last_timestamp_dt + timedelta(hours=param_hours)).replace(second=0, microsecond=0)
         upper_timestamp_utc = upper_timestamp_dt.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        log_memory_usage("after_time_setup")
 
         # OpenSearch query to fetch data within the given time range
         query = {
@@ -187,7 +215,7 @@ class Component(ComponentBase):
                     }
                 }
             },
-            "size": 500,
+            "size": batch_size,
             "sort": [
                 {"@timestamp": "asc"}
             ]
@@ -195,6 +223,8 @@ class Component(ComponentBase):
 
         scroll_time = "10m"
         file_exists = os.path.exists(out_table_path)
+        batch_counter = 0
+        total_saved = 0
 
         try:
             # Initial OpenSearch request
@@ -205,27 +235,36 @@ class Component(ComponentBase):
             )
             scroll_id = response.get("_scroll_id")
             hits = response.get("hits", {}).get("hits", [])
-
-            total_saved = 0
+            log_memory_usage("after_initial_search")
 
             while hits:
+                batch_counter += 1
                 df = pd.DataFrame(hits)
-                # self.log_memory_usage("After creating DataFrame")
+                log_memory_usage(f"batch_{batch_counter}_after_creating_df")
 
                 if not df.empty:
+                    # Ošetření pro případ, že _source není typu dict
                     df['_source'] = df['_source'].apply(lambda x: x if isinstance(x, dict) else {})
 
+                    # Vytvoření explozivní normalizace pro zanořené JSON objekty
                     source_expanded = pd.json_normalize(df['_source'])
-                    # self.log_memory_usage("After json_normalize")
-                    selected_columns = [col for col in REQUIRED_COLUMNS if col in source_expanded.columns]
-                    filtered_data = source_expanded[selected_columns] if selected_columns else source_expanded
-                    # self.log_memory_usage("After filtering columns")
+                    log_memory_usage(f"batch_{batch_counter}_after_json_normalize")
 
-                    # Add `_id` and `_index`
+                    # Použití REQUIRED_COLUMNS pokud je k dispozici pro zajištění konzistentního pořadí
+                    # a obsahu sloupců
+                    if 'REQUIRED_COLUMNS' in globals():
+                        selected_columns = [col for col in REQUIRED_COLUMNS if col in source_expanded.columns]
+                        filtered_data = source_expanded[selected_columns] if selected_columns else source_expanded
+                    else:
+                        filtered_data = source_expanded
+
+                    log_memory_usage(f"batch_{batch_counter}_after_filtering_columns")
+
+                    # Přidání _id a _index - stejné jako v původním kódu
                     filtered_data.insert(0, '_id', df['_id'])
                     filtered_data.insert(1, '_index', df['_index'])
 
-                    # Convert `@timestamp` to Prague timezone before saving to CSV
+                    # Konverze @timestamp na pražskou časovou zónu - stejné jako v původním kódu
                     if "@timestamp" in filtered_data.columns:
                         filtered_data.loc[:, "@timestamp"] = (
                             pd.to_datetime(filtered_data["@timestamp"], utc=True)
@@ -233,7 +272,7 @@ class Component(ComponentBase):
                             .dt.strftime("%Y-%m-%dT%H:%M:%S.%f")
                         )
 
-                    # Ensure `labels.relevant_domain_id` is stored as a string
+                    # Zajištění, že labels.relevant_domain_id je uložen jako string - stejné jako v původním kódu
                     if 'labels.relevant_domain_id' in filtered_data.columns:
                         filtered_data = filtered_data.astype({'labels.relevant_domain_id': 'string'})
                         filtered_data.loc[:, 'labels.relevant_domain_id'] = (
@@ -242,34 +281,38 @@ class Component(ComponentBase):
                             .astype(str)
                             .str.replace(r'\.0$', '', regex=True)
                         )
+                    log_memory_usage(f"batch_{batch_counter}_after_data_processing")
 
-                    # Rename columns (remove `_` and `@`, replace `.` with `_`)
+                    # Přejmenování sloupců - stejné jako v původním kódu
                     filtered_data = filtered_data.rename(columns=lambda x: x.lstrip("@_").replace(".", "_"))
+                    log_memory_usage(f"batch_{batch_counter}_after_column_rename")
 
-                    # Save to CSV
+                    # Uložení do CSV - stejné jako v původním kódu
                     filtered_data.to_csv(out_table_path, index=False, mode='a', header=not file_exists)
                     file_exists = True
                     total_saved += len(filtered_data)
-                    # print(f"Saved {total_saved:,} rows to file {out_table_path}".replace(",", " "))
-                    # self.log_memory_usage("Actual memory usage")
+                    log_memory_usage(f"batch_{batch_counter}_after_csv_save")
 
-                    # Store last processed `_id` and `@timestamp`
+                    # Uložení posledního zpracovaného _id a @timestamp
                     last_id = str(filtered_data['id'].iloc[-1])
-                    last_timestamp = df["_source"].iloc[-1]["@timestamp"]
+                    last_timestamp = df["_source"].iloc[-1]["@timestamp"] if "@timestamp" in df["_source"].iloc[
+                        -1] else None
 
-                    # Uvolnění paměti
+                    # Uvolnění paměti - stejné jako v původním kódu
                     del df, filtered_data, source_expanded
                     gc.collect()
-                    # self.log_memory_usage("After garbage collection")
+                    log_memory_usage(f"batch_{batch_counter}_after_garbage_collection")
 
-                print(f"Saved {total_saved:,} rows to file {out_table_path}".replace(",", " "))
+                if batch_counter % 100 == 0 or batch_counter == 1:
+                    print(f"Saved {total_saved:,} rows to file {out_table_path}".replace(",", " "))
 
                 # Fetch next batch of data
                 response = client.scroll(scroll_id=scroll_id, scroll=scroll_time)
                 hits = response.get("hits", {}).get("hits", [])
-                # self.log_memory_usage("After fetching first batch")
+                if hits:
+                    log_memory_usage(f"batch_{batch_counter}_after_fetching_next_batch")
 
-                # Store last processed record in `last_item.csv` with both UTC and Prague timestamps
+                # Uložení posledního zpracovaného záznamu do last_item.csv
                 if last_id and last_timestamp:
                     last_timestamp_dt = datetime.strptime(last_timestamp, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
                         tzinfo=pytz.utc)
@@ -280,8 +323,27 @@ class Component(ComponentBase):
                     )
                     last_item_df.to_csv(last_item_path, index=False)
 
+            print(f"Finished processing. Total records saved: {total_saved:,}".replace(",", " "))
+
         except Exception as e:
             print(f"Data extraction failed: {e}")
+
+        finally:
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            log_memory_usage("final")
+
+            # Souhrnné statistiky na konci procesu
+            if memory_measurements:
+                avg_memory = sum(memory_measurements) / len(memory_measurements)
+                print(f"\nOVERALL MEMORY STATISTICS:")
+                print(f"Data extraction completed in {elapsed_time:.2f} seconds")
+                print(f"Initial memory: {memory_measurements[0]:.2f} MB")
+                print(f"Final memory: {memory_measurements[-1]:.2f} MB")
+                print(f"Maximum memory: {max_memory_usage:.2f} MB")
+                print(f"Average memory: {avg_memory:.2f} MB")
+
+                # Odstranění výpisu bodů s nejvyšší spotřebou paměti a ASCII grafu
 
     def _create_and_start_ssh_tunnel(self, params):
         """Sets up and starts the SSH tunnel."""
@@ -358,7 +420,6 @@ class Component(ComponentBase):
                 logging.info("Stopping SSH tunnel...")
                 self.ssh_tunnel.stop()
                 logging.info("SSH tunnel stopped.")
-
 
 # Main entrypoint
 if __name__ == "__main__":
