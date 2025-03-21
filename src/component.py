@@ -71,6 +71,7 @@ REQUIRED_COLUMNS = [
     "service.type",  "user_agent.os.full", "user_agent.os.name",
 ]
 
+
 class Component(ComponentBase):
 
     @staticmethod
@@ -290,7 +291,8 @@ class Component(ComponentBase):
                     # Extract additional fields
                     if 'message' in source_expanded.columns:
                         source_expanded['user_id'] = source_expanded['message'].apply(self.extract_user_id)
-                        source_expanded['problem_detail'] = source_expanded['message'].apply(self.extract_problem_detail)
+                        source_expanded['problem_detail'] = (source_expanded['message'].
+                                                             apply(self.extract_problem_detail))
                         source_expanded['result'] = source_expanded['message'].apply(self.extract_result)
                         source_expanded['is_processed'] = ''
 
@@ -324,8 +326,7 @@ class Component(ComponentBase):
                     log_memory_usage(f"batch_{batch_counter}_after_data_processing")
 
                     filtered_data = filtered_data.rename(columns=lambda x: x.lstrip("@_").replace(".", "_"))
-                    filtered_data = filtered_data.rename(columns=
-                                                         {
+                    filtered_data = filtered_data.rename(columns={
                                                              "id": "system_log_id",
                                                              "event_action": "system_log_type",
                                                              "timestamp": "date_performed",
@@ -335,7 +336,6 @@ class Component(ComponentBase):
                                                              "labels_relevant_domain_id": "relevant_domain_id"
                                                          }
                                                          )
-
 
                     log_memory_usage(f"batch_{batch_counter}_after_column_rename")
 
