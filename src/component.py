@@ -4,7 +4,7 @@ import os
 import psutil
 import pandas as pd
 from opensearchpy import OpenSearch
-import pytz  # Převod na časovou zónu
+import pytz
 import time
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
@@ -12,6 +12,8 @@ from keboola.component.exceptions import UserException
 from datetime import datetime, timedelta
 from client.ssh_utils import get_private_key
 from sshtunnel import SSHTunnelForwarder
+
+import re
 
 # configuration variables
 KEY_GROUP_DB = 'db'
@@ -60,15 +62,14 @@ REQUIRED_PARAMETERS = [KEY_GROUP_DB]
 
 RSA_HEADER = "-----BEGIN RSA PRIVATE KEY-----"
 
-# Definice požadovaných sloupců
+# Required columns
 REQUIRED_COLUMNS = [
-    "@timestamp", "beat.hostname", "es_index", "event.action", "host.env", "host.name",
-    "labels.relevant_domain", "labels.relevant_domain_id", "labels.source_class_name",
-    "labels.system_log_severity", "log.file.path", "log.level", "log.logger", "message",
-    "process.thread.name", "service.environment", "service.name", "service.node.name",
-    "service.type", "source.ip", "user_agent.original", "user_agent.os.full", "user_agent.os.name"
+    "event.action",  "@timestamp", "labels.system_log_severity", "source.ip", "user_agent.original",
+    "user_id", "labels.relevant_domain", "labels.relevant_domain_id", "is_processed",  "result", "problem_detail",
+    "beat.hostname", "es_index",  "host.env", "host.name", "labels.source_class_name", "log.file.path", "log.level",
+    "log.logger", "message", "process.thread.name", "service.environment", "service.name", "service.node.name",
+    "service.type",  "user_agent.os.full", "user_agent.os.name",
 ]
-
 
 class Component(ComponentBase):
 
@@ -99,31 +100,67 @@ class Component(ComponentBase):
             raise UserException("Missing database hostname or port.")
         logging.info("Validation successful.")
 
+    @staticmethod
+    def extract_user_id(message):
+        if not isinstance(message, str):
+            return None
+        match = re.search(r"U:(\d+)", message)
+        return match.group(1) if match else None
+
+    @staticmethod
+    def extract_problem_detail(message):
+        if not isinstance(message, str):
+            return None
+
+        message = message.replace("\n", " ")
+
+        match = re.search(r"R\[.*?\]\[(.*?)\](?=,?\s*IP\[)", message, re.DOTALL)
+
+        if match:
+            problem_detail = match.group(1)
+
+            if "-eshop" in problem_detail:
+                parts = problem_detail.split("-", 2)
+                if len(parts) > 2:
+                    problem_detail = f"{parts[0]}-{parts[1]}{{{parts[2]}}}"
+            else:
+                problem_detail = problem_detail.replace("-", "{", 1)
+
+            # problem_detail = problem_detail.replace("[", "{").replace("]", "}")
+
+            return f"{problem_detail[:-1]}}}"
+
+        return None
+
+    @staticmethod
+    def extract_result(message):
+        if not isinstance(message, str):
+            return None
+        match = re.search(r"R\[(true|false)", message, re.IGNORECASE)
+        return "1" if match and match.group(1).lower() == "true" else None
+
     def get_data_client(self, params):
         """ Fetches data from OpenSearch based on the given parameters. """
         start_time = time.time()
         logging.info("Fetching data from OpenSearch...")
 
-        # Funkce pro sledování paměti
+        # Memory check
         def get_memory_usage():
             process = psutil.Process(os.getpid())
             memory_info = process.memory_info()
-            # Převod na MB
             return memory_info.rss / 1024 / 1024
 
-        # Inicializace proměnných pro sledování paměti
         max_memory_usage = 0
         memory_measurements = []
         memory_points = []
 
-        # Funkce pro aktualizaci paměti a výpis stavu
+        # Memory refresh and report
         def log_memory_usage(step_name=None):
             nonlocal max_memory_usage
             current_memory = get_memory_usage()
             memory_measurements.append(current_memory)
             if step_name:
                 memory_points.append((step_name, current_memory))
-                # Odstranění průběžného výpisu paměti
             max_memory_usage = max(max_memory_usage, current_memory)
             return current_memory
 
@@ -138,7 +175,7 @@ class Component(ComponentBase):
         param_date = params.get(KEY_DATE, '2025-01-01')  # Default date if not provided
         param_hours = int(params.get(KEY_HOUR, 1))  # Default to 1 hour increment
         index_name = params.get(KEY_INDEX_NAME)
-        batch_size = int(params.get("batch_size", 5000))  # Nastavení velikosti dávky z parametrů
+        batch_size = int(params.get("batch_size", 500))  # Default batch size
 
         print(f"Increment {param_hours} hour(s)")
         print(f"Index name: {index_name}")
@@ -243,15 +280,20 @@ class Component(ComponentBase):
                 log_memory_usage(f"batch_{batch_counter}_after_creating_df")
 
                 if not df.empty:
-                    # Ošetření pro případ, že _source není typu dict
-                    df['_source'] = df['_source'].apply(lambda x: x if isinstance(x, dict) else {})
 
-                    # Vytvoření explozivní normalizace pro zanořené JSON objekty
+                    df['_source'] = df['_source'].apply(lambda x: x if isinstance(x, dict) else {})
                     source_expanded = pd.json_normalize(df['_source'])
                     log_memory_usage(f"batch_{batch_counter}_after_json_normalize")
 
-                    # Použití REQUIRED_COLUMNS pokud je k dispozici pro zajištění konzistentního pořadí
-                    # a obsahu sloupců
+                    source_expanded['_index'] = df['_index']
+
+                    # Extract additional fields
+                    if 'message' in source_expanded.columns:
+                        source_expanded['user_id'] = source_expanded['message'].apply(self.extract_user_id)
+                        source_expanded['problem_detail'] = source_expanded['message'].apply(self.extract_problem_detail)
+                        source_expanded['result'] = source_expanded['message'].apply(self.extract_result)
+                        source_expanded['is_processed'] = ''
+
                     if 'REQUIRED_COLUMNS' in globals():
                         selected_columns = [col for col in REQUIRED_COLUMNS if col in source_expanded.columns]
                         filtered_data = source_expanded[selected_columns] if selected_columns else source_expanded
@@ -260,45 +302,52 @@ class Component(ComponentBase):
 
                     log_memory_usage(f"batch_{batch_counter}_after_filtering_columns")
 
-                    # Přidání _id a _index - stejné jako v původním kódu
                     filtered_data.insert(0, '_id', df['_id'])
-                    filtered_data.insert(1, '_index', df['_index'])
 
-                    # Konverze @timestamp na pražskou časovou zónu - stejné jako v původním kódu
                     if "@timestamp" in filtered_data.columns:
                         filtered_data.loc[:, "@timestamp"] = (
                             pd.to_datetime(filtered_data["@timestamp"], utc=True)
                             .dt.tz_convert(prague_tz)
-                            .dt.strftime("%Y-%m-%dT%H:%M:%S.%f")
+                            .dt.floor("ms")
+                            .dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+                            .str[:-3]
                         )
 
-                    # Zajištění, že labels.relevant_domain_id je uložen jako string - stejné jako v původním kódu
                     if 'labels.relevant_domain_id' in filtered_data.columns:
                         filtered_data = filtered_data.astype({'labels.relevant_domain_id': 'string'})
                         filtered_data.loc[:, 'labels.relevant_domain_id'] = (
                             filtered_data['labels.relevant_domain_id']
-                            .fillna('0')
+                            .fillna('')
                             .astype(str)
                             .str.replace(r'\.0$', '', regex=True)
                         )
                     log_memory_usage(f"batch_{batch_counter}_after_data_processing")
 
-                    # Přejmenování sloupců - stejné jako v původním kódu
                     filtered_data = filtered_data.rename(columns=lambda x: x.lstrip("@_").replace(".", "_"))
+                    filtered_data = filtered_data.rename(columns=
+                                                         {
+                                                             "id": "system_log_id",
+                                                             "event_action": "system_log_type",
+                                                             "timestamp": "date_performed",
+                                                             "labels_system_log_severity": "severity",
+                                                             "user_agent_original": "user_agent",
+                                                             "labels_relevant_domain": "relevant_domain",
+                                                             "labels_relevant_domain_id": "relevant_domain_id"
+                                                         }
+                                                         )
+
+
                     log_memory_usage(f"batch_{batch_counter}_after_column_rename")
 
-                    # Uložení do CSV - stejné jako v původním kódu
-                    filtered_data.to_csv(out_table_path, index=False, mode='a', header=not file_exists)
+                    filtered_data.to_csv(out_table_path, index=False, mode='a', header=not file_exists, chunksize=1000)
                     file_exists = True
                     total_saved += len(filtered_data)
                     log_memory_usage(f"batch_{batch_counter}_after_csv_save")
 
-                    # Uložení posledního zpracovaného _id a @timestamp
-                    last_id = str(filtered_data['id'].iloc[-1])
+                    last_id = str(filtered_data['system_log_id'].iloc[-1])
                     last_timestamp = df["_source"].iloc[-1]["@timestamp"] if "@timestamp" in df["_source"].iloc[
                         -1] else None
 
-                    # Uvolnění paměti - stejné jako v původním kódu
                     del df, filtered_data, source_expanded
                     gc.collect()
                     log_memory_usage(f"batch_{batch_counter}_after_garbage_collection")
@@ -312,7 +361,7 @@ class Component(ComponentBase):
                 if hits:
                     log_memory_usage(f"batch_{batch_counter}_after_fetching_next_batch")
 
-                # Uložení posledního zpracovaného záznamu do last_item.csv
+                # Last item detail save to last_item.csv
                 if last_id and last_timestamp:
                     last_timestamp_dt = datetime.strptime(last_timestamp, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
                         tzinfo=pytz.utc)
@@ -333,7 +382,7 @@ class Component(ComponentBase):
             elapsed_time = end_time - start_time
             log_memory_usage("final")
 
-            # Souhrnné statistiky na konci procesu
+            # Memory statistics
             if memory_measurements:
                 avg_memory = sum(memory_measurements) / len(memory_measurements)
                 print("\nOVERALL MEMORY STATISTICS:")
@@ -342,8 +391,6 @@ class Component(ComponentBase):
                 print(f"Final memory: {memory_measurements[-1]:.2f} MB")
                 print(f"Maximum memory: {max_memory_usage:.2f} MB")
                 print(f"Average memory: {avg_memory:.2f} MB")
-
-                # Odstranění výpisu bodů s nejvyšší spotřebou paměti a ASCII grafu
 
     def _create_and_start_ssh_tunnel(self, params):
         """Sets up and starts the SSH tunnel."""
