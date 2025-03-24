@@ -235,11 +235,11 @@ class Component(ComponentBase):
         prague_tz = pytz.timezone("Europe/Prague")
         last_timestamp_dt = datetime.strptime(last_timestamp, "%Y-%m-%dT%H:%M:%S")
         last_timestamp_dt = prague_tz.localize(last_timestamp_dt)
-        last_timestamp_utc = last_timestamp_dt.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
-
-        # Set upper time limit based on incremented hours
+        last_timestamp_dt_minus_5 = last_timestamp_dt - timedelta(minutes=5)
+        last_timestamp_utc = last_timestamp_dt_minus_5.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
         upper_timestamp_dt = (last_timestamp_dt + timedelta(hours=param_hours)).replace(second=0, microsecond=0)
         upper_timestamp_utc = upper_timestamp_dt.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
         log_memory_usage("after_time_setup")
 
         # OpenSearch query to fetch data within the given time range
