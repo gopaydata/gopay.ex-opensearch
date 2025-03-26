@@ -65,7 +65,7 @@ RSA_HEADER = "-----BEGIN RSA PRIVATE KEY-----"
 # Required columns
 REQUIRED_COLUMNS = [
     "event.action",  "@timestamp", "labels.system_log_severity", "source.ip", "user_agent.original",
-    "user_id", "labels.relevant_domain", "labels.relevant_domain_id", "is_processed",  "result", "problem_detail",
+    "user.id", "labels.relevant_domain", "labels.relevant_domain_id", "is_processed",  "result", "problem_detail",
     "beat.hostname", "es_index",  "host.env", "host.name", "labels.source_class_name", "log.file.path", "log.level",
     "log.logger", "message", "process.thread.name", "service.environment", "service.name", "service.node.name",
     "service.type",  "user_agent.os.full", "user_agent.os.name",
@@ -105,7 +105,7 @@ class Component(ComponentBase):
     def extract_user_id(message):
         if not isinstance(message, str):
             return None
-        match = re.search(r"U:(\d+)", message)
+        match = re.search(r"U[:\[](\d+)\]?", message)
         return match.group(1) if match else None
 
     @staticmethod
@@ -235,8 +235,8 @@ class Component(ComponentBase):
         prague_tz = pytz.timezone("Europe/Prague")
         last_timestamp_dt = datetime.strptime(last_timestamp, "%Y-%m-%dT%H:%M:%S")
         last_timestamp_dt = prague_tz.localize(last_timestamp_dt)
-        last_timestamp_dt_minus_5 = last_timestamp_dt - timedelta(minutes=5)
-        last_timestamp_utc = last_timestamp_dt_minus_5.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        last_timestamp_dt_minus = last_timestamp_dt - timedelta(minutes=1)
+        last_timestamp_utc = last_timestamp_dt_minus.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
         upper_timestamp_dt = (last_timestamp_dt + timedelta(hours=param_hours)).replace(second=0, microsecond=0)
         upper_timestamp_utc = upper_timestamp_dt.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
@@ -290,7 +290,7 @@ class Component(ComponentBase):
 
                     # Extract additional fields
                     if 'message' in source_expanded.columns:
-                        source_expanded['user_id'] = source_expanded['message'].apply(self.extract_user_id)
+                        # source_expanded['user_id'] = source_expanded['message'].apply(self.extract_user_id)
                         source_expanded['problem_detail'] = (source_expanded['message'].
                                                              apply(self.extract_problem_detail))
                         source_expanded['result'] = source_expanded['message'].apply(self.extract_result)
@@ -323,6 +323,16 @@ class Component(ComponentBase):
                             .astype(str)
                             .str.replace(r'\.0$', '', regex=True)
                         )
+
+                    if 'user.id' in filtered_data.columns:
+                        filtered_data = filtered_data.astype({'user.id': 'string'})
+                        filtered_data.loc[:, 'user.id'] = (
+                            filtered_data['user.id']
+                            .fillna('')
+                            .astype(str)
+                            .str.replace(r'\.0$', '', regex=True)
+                        )
+
                     log_memory_usage(f"batch_{batch_counter}_after_data_processing")
 
                     filtered_data = filtered_data.rename(columns=lambda x: x.lstrip("@_").replace(".", "_"))
