@@ -173,7 +173,7 @@ class Component(ComponentBase):
         password = auth_params.get(KEY_API_KEY)
 
         # Extract parameters
-        param_date = params.get(KEY_DATE, '2025-01-01')  # Default date if not provided
+        param_date = params.get(KEY_DATE, '2025-01-01T00:00:00')  # Default date if not provided
         param_hours = int(params.get(KEY_HOUR, 1))  # Default to 1 hour increment
         index_name = params.get(KEY_INDEX_NAME)
         batch_size = int(params.get("batch_size", 500))  # Default batch size
@@ -229,13 +229,13 @@ class Component(ComponentBase):
 
         # If no timestamp is stored, start from the provided date
         if not last_timestamp:
-            last_timestamp = f"{param_date}T00:00:00"
+            last_timestamp = f"{param_date}"
 
         # Convert timestamp from Prague timezone to UTC
         prague_tz = pytz.timezone("Europe/Prague")
         last_timestamp_dt = datetime.strptime(last_timestamp, "%Y-%m-%dT%H:%M:%S")
         last_timestamp_dt = prague_tz.localize(last_timestamp_dt)
-        last_timestamp_dt_minus = last_timestamp_dt - timedelta(minutes=1)
+        last_timestamp_dt_minus = last_timestamp_dt - timedelta(minutes=5)
         last_timestamp_utc = last_timestamp_dt_minus.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
         upper_timestamp_dt = (last_timestamp_dt + timedelta(hours=param_hours)).replace(second=0, microsecond=0)
         upper_timestamp_utc = upper_timestamp_dt.astimezone(pytz.utc).strftime("%Y-%m-%dT%H:%M:%S")
@@ -308,7 +308,7 @@ class Component(ComponentBase):
 
                     if "@timestamp" in filtered_data.columns:
                         filtered_data.loc[:, "@timestamp"] = (
-                            pd.to_datetime(filtered_data["@timestamp"], utc=True)
+                            pd.to_datetime(filtered_data["@timestamp"], format="%Y-%m-%dT%H:%M:%S.%fZ", utc=True)
                             .dt.tz_convert(prague_tz)
                             .dt.floor("ms")
                             .dt.strftime("%Y-%m-%d %H:%M:%S.%f")
