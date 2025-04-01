@@ -1,25 +1,40 @@
 {
+  "storage": {
+    "input": {
+      "tables": [
+        {
+          "source": "out.c-opensearch.system-log-os-last-item",
+          "destination": "last_item.csv",
+          "where_column": "",
+          "where_values": [],
+          "where_operator": "eq",
+          "columns": [],
+          "keep_internal_timestamp_column": false
+        }
+      ]
+    },
+    "output": {
+      "tables": [
+        {
+          "destination": "out.c-opensearch.system-log-os",
+          "source": "os_output.csv",
+          "incremental": true,
+          "primary_key": [
+            "system_log_id",
+            "date_performed"
+          ]
+        },
+        {
+          "destination": "out.c-opensearch.system-log-os-last-item",
+          "source": "last_item.csv"
+        }
+      ]
+    }
+  },
   "parameters": {
-    "index_name": "myindex",
-    "primary_keys": ["id", "index"],
-    "query": "{\"_source\":[\"_id\",\"_index\",\"_score\",\"_type\",\"click.clicked_at\",\"click.result.display_text\",\"click.result.serp_position\",\"click.result.uri\",\"event\",\"market\",\"offset\",\"query.current_value\",\"query.entered_at\",\"serp.displayed_at\",\"session_id\",\"user_hash\"]}",
-    "date": {
-      "shift": "yesterday",
-      "format": "%Y-%m-%d",
-      "time_zone": "UTC"
-    },
-    "scheme": "http",
-    "incremental": true,
-    "storage_table": "search_analytics",
-    "db": {
-      "hostname": "localhost",
-      "port": 9200
-    },
-    "authentication": {
-      "auth_type": "basic",
-      "username": "elastic",
-      "#password": "root"
-    },
-    "debug": false
+    "date": "2025-03-21T00:00:00",
+    "hours": 4,
+    "index_name": "app-index-prod",
+    "batch_size": 1000
   }
 }

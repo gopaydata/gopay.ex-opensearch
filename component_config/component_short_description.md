@@ -1,1 +1,2 @@
-Elasticsearch is a search engine based on the Lucene library. It provides a distributed, multitenant-capable full-text search engine with an HTTP web interface and schema-free JSON documents.
+
+The OpenSearch Extractor component for Keboola downloads logs from OpenSearch, performs data transformation, and supports incremental extraction via a last processed record tracker.
