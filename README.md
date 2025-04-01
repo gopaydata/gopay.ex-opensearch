@@ -31,12 +31,12 @@ This component extracts logs from OpenSearch indexes and loads them into Keboola
 ┌─────────▼────────────┐
 │  Data Transformation │
 │(select + rename cols)│
-└──────┬──────┬───────┘
+└──────┬──────┬────────┘
        │      │
-┌──────▼──┐ ┌─▼─────────┐
-│os_output│ │last_item  │
+┌──────▼──┐ ┌─▼──────────┐
+│os_output│ │last_item   │
 │ .csv    │ │.csv (state)│
-└─────────┘ └───────────┘
+└─────────┘ └────────────┘
 ```
 
 ---
