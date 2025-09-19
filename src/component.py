@@ -245,12 +245,21 @@ class Component(ComponentBase):
         # OpenSearch query to fetch data within the given time range
         query = {
             "query": {
-                "range": {
-                    "@timestamp": {
-                        "gt": last_timestamp_utc,  # Use UTC timestamp
-                        "lte": upper_timestamp_utc,  # Upper time limit in UTC
-                        "format": "yyyy-MM-dd'T'HH:mm:ss"
-                    }
+                "bool": {
+                    "must": [
+                        {
+                            "range": {
+                                "@timestamp": {
+                                    "gt": last_timestamp_utc,
+                                    "lte": upper_timestamp_utc,
+                                    "format": "yyyy-MM-dd'T'HH:mm:ss"
+                                }
+                            }
+                        }
+                    ],
+                    "must_not": [
+                        {"term": {"event.action": "DAILY_PAYMENTS_LIMIT_PASSED"}}
+                    ]
                 }
             },
             "size": batch_size,
