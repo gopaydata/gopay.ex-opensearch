@@ -1,5 +1,5 @@
 import logging
-import gc
+#import gc
 import os
 import psutil
 import pandas as pd
@@ -74,16 +74,9 @@ REQUIRED_COLUMNS = [
 
 class Component(ComponentBase):
 
-    @staticmethod
-    def log_memory_usage(stage=""):
-        process = psutil.Process()
-        mem_info = process.memory_info()
-        logging.info(
-            f"[MEMORY] {stage} - RSS: {mem_info.rss / (1024 * 1024):.2f} MB, "
-            f"VMS: {mem_info.vms / (1024 * 1024):.2f} MB")
-
     def __init__(self):
         super().__init__()
+        self.debug_mode = None
 
     @staticmethod
     def validate_params(params):
@@ -157,6 +150,8 @@ class Component(ComponentBase):
 
         # Memory refresh and report
         def log_memory_usage(step_name=None):
+            if not getattr(self, "debug_mode", False):
+                return
             nonlocal max_memory_usage
             current_memory = get_memory_usage()
             memory_measurements.append(current_memory)
@@ -201,7 +196,8 @@ class Component(ComponentBase):
             verify_certs=False,
             ssl_assert_hostname=False,
             ssl_show_warn=False,
-            timeout=30
+            timeout=30,
+            http_compress=True,
         )
         log_memory_usage("after_client_init")
 
@@ -244,6 +240,14 @@ class Component(ComponentBase):
 
         # OpenSearch query to fetch data within the given time range
         query = {
+            "_source": [
+                "event.action",  "@timestamp", "labels.system_log_severity", "source.ip", "user_agent.original",
+                "user.id", "labels.relevant_domain", "labels.relevant_domain_id", "is_processed",
+                "result", "problem_detail", "beat.hostname", "es_index",  "host.env", "host.name",
+                "labels.source_class_name", "log.file.path", "log.level", "log.logger", "message",
+                "process.thread.name", "service.environment", "service.name", "service.node.name",
+                "service.type",  "user_agent.os.full", "user_agent.os.name"
+            ],
             "query": {
                 "bool": {
                     "must": [
@@ -278,7 +282,8 @@ class Component(ComponentBase):
             response = client.search(
                 body=query,
                 index=index_name,
-                scroll=scroll_time
+                scroll=scroll_time,
+                params={"filter_path": "_scroll_id,hits.hits._id,hits.hits._index,hits.hits._source"}
             )
             scroll_id = response.get("_scroll_id")
             hits = response.get("hits", {}).get("hits", [])
@@ -368,7 +373,7 @@ class Component(ComponentBase):
                         -1] else None
 
                     del df, filtered_data, source_expanded
-                    gc.collect()
+                    # gc.collect()
                     log_memory_usage(f"batch_{batch_counter}_after_garbage_collection")
 
                 if batch_counter % 100 == 0 or batch_counter == 1:
@@ -399,13 +404,14 @@ class Component(ComponentBase):
         finally:
             end_time = time.time()
             elapsed_time = end_time - start_time
+            print(f"\n⏱️  Data extraction completed in {elapsed_time:.2f} seconds")
+
             log_memory_usage("final")
 
-            # Memory statistics
-            if memory_measurements:
+            # Memory statistics – only if debug_mode is True
+            if self.debug_mode and memory_measurements:
                 avg_memory = sum(memory_measurements) / len(memory_measurements)
-                print("\nOVERALL MEMORY STATISTICS:")
-                print(f"Data extraction completed in {elapsed_time:.2f} seconds")
+                print("\n🧠 MEMORY STATISTICS:")
                 print(f"Initial memory: {memory_measurements[0]:.2f} MB")
                 print(f"Final memory: {memory_measurements[-1]:.2f} MB")
                 print(f"Maximum memory: {max_memory_usage:.2f} MB")
@@ -459,7 +465,15 @@ class Component(ComponentBase):
         self.validate_configuration_parameters(REQUIRED_PARAMETERS)
         params = self.configuration.parameters
         self.validate_params(params)
+        self.debug_mode = params.get("debug", False)
+
+        if self.debug_mode:
+            logging.info("🛠️ Debug mode is ON – memory logging is enabled.")
+        else:
+            logging.info("✅ Debug mode is OFF – running optimized mode.")
+
         logging.getLogger("opensearch").setLevel(logging.WARNING)
+        logging.getLogger("urllib3").setLevel(logging.CRITICAL)
 
         ssh_tunnel_started = False
         try:
