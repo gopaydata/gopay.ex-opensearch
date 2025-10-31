@@ -321,12 +321,21 @@ class Component(ComponentBase):
                     filtered_data.insert(0, '_id', df['_id'])
 
                     if "@timestamp" in filtered_data.columns:
+                        ts_series = pd.to_datetime(filtered_data["@timestamp"], errors="coerce", utc=True)
+
+                        def safe_to_prague(ts):
+                            if pd.isna(ts):
+                                return ts
+                            try:
+                                return ts.tz_convert(prague_tz)
+                            except Exception: 
+                                return ts.tz_convert(prague_tz, ambiguous='NaT')
+
+                        ts_series = ts_series.apply(safe_to_prague)
+
+                        # Formátování výstupu pro CSV
                         filtered_data.loc[:, "@timestamp"] = (
-                            pd.to_datetime(filtered_data["@timestamp"], format="%Y-%m-%dT%H:%M:%S.%fZ", utc=True)
-                            .dt.tz_convert(prague_tz)
-                            .dt.floor("ms")
-                            .dt.strftime("%Y-%m-%d %H:%M:%S.%f")
-                            .str[:-3]
+                            ts_series.dt.strftime("%Y-%m-%d %H:%M:%S.%f").str[:-3]
                         )
 
                     if 'labels.relevant_domain_id' in filtered_data.columns:
