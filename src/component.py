@@ -328,7 +328,7 @@ class Component(ComponentBase):
                                 return ts
                             try:
                                 return ts.tz_convert(prague_tz)
-                            except Exception: 
+                            except Exception:
                                 return ts.tz_convert(prague_tz, ambiguous='NaT')
 
                         ts_series = ts_series.apply(safe_to_prague)
